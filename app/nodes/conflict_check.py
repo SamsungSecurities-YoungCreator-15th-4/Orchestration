@@ -13,7 +13,7 @@ def conflict_check(state: RiskState) -> dict:
     total_value = sum(p["value_krw"] for p in portfolio)
 
     liquidity_total = sum(
-        n.get("amount_krw", 0) for n in ips.get("liquidity_needs", [])
+        n.get("amount_krw", 0) for n in (ips.get("liquidity_needs") or [])
     )
 
     conflicts = []

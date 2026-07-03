@@ -40,6 +40,10 @@ def compute_metrics(
     arr = np.asarray(returns, dtype=float)
     if arr.size == 0:
         raise ValueError("수익률 데이터(returns)가 비어 있어 리스크 지표를 계산할 수 없습니다.")
+    if not portfolio:
+        raise ValueError("포트폴리오 데이터(portfolio)가 비어 있어 리스크 지표를 계산할 수 없습니다.")
+    if not (0.0 < confidence < 1.0):
+        raise ValueError("신뢰수준(confidence)은 0과 1 사이의 값이어야 합니다.")
     total_value = sum(p["value_krw"] for p in portfolio)
 
     var_1d = historical_var(arr, confidence)

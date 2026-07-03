@@ -37,5 +37,5 @@ def extract_ips(state: RiskState) -> dict:
     out: dict = {"ips": profile.model_dump()}
     # 충돌로 인한 재추출인 경우 재시도 횟수 기록
     if state.get("conflicts"):
-        out["conflict_retries"] = state.get("conflict_retries", 0) + 1
+        out["conflict_retries"] = (state.get("conflict_retries") or 0) + 1
     return out

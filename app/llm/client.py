@@ -12,9 +12,11 @@ def get_llm(temperature: float = 0.0):
     어떤 외부 의존도 초기화되지 않도록 한다.
     """
     required = ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_DEPLOYMENT"]
-    missing = [k for k in required if not os.environ.get(k)]
+    missing = [k for k in required if not os.environ.get(k, "").strip()]
     if missing:
-        raise RuntimeError(f"필수 Azure OpenAI 환경 변수가 누락되었습니다: {', '.join(missing)}")
+        raise RuntimeError(
+            f"필수 Azure OpenAI 환경 변수가 누락되었거나 비어 있습니다: {', '.join(missing)}"
+        )
 
     from langchain_openai import AzureChatOpenAI
 
