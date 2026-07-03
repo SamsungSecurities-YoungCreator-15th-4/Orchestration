@@ -1,0 +1,6 @@
+seed: 42
+as_of_date: "2026-07-03"
+base_currency: KRW
+rf_rate: 0.0325
+var_confidence: 0.99
+horizons: [1, 10]

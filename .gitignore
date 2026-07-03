@@ -1,0 +1,20 @@
+# 환경/비밀
+.env
+.venv/
+
+# 파이썬
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+*.egg-info/
+
+# 데이터 산출물
+data/*.parquet
+data/*.csv
+
+# 에디터/OS
+.idea/
+.vscode/
+.DS_Store
+.claude/
