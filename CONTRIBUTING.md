@@ -10,7 +10,7 @@
 GitFlow를 따릅니다.
 
 ```
-feature/*  →  develop  →  main
+feature/*, fix/*  →  develop  →  main
 ```
 
 - `main` 직접 커밋은 금지합니다. 모든 변경은 **PR + 최소 1명 리뷰 승인** 후 머지합니다.
