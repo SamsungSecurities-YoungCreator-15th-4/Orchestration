@@ -56,7 +56,7 @@ def main() -> None:
     if snapshot.next and "approval_gate" in snapshot.next:
         _print_header("2) 승인 대기 (HITL 인터럽트)")
         conflicts = snapshot.values.get("conflicts", [])
-        print(f"  상태: approval_gate 직전에서 정지")
+        print("  상태: approval_gate 직전에서 정지")
         print(f"  미해결 충돌: {len(conflicts)}건")
         for c in conflicts:
             print(f"    - {c['detail']}")
@@ -81,7 +81,7 @@ def main() -> None:
     n_extract = order.count("extract_ips")
     n_rag = order.count("rag_cite")
     print(f"  충돌 재추출(분기 ①): {n_extract - 1}회 (extract_ips 총 {n_extract}회 실행)")
-    print(f"  HITL 인터럽트(②): approval_gate 직전 정지 1회 발생")
+    print("  HITL 인터럽트(②): approval_gate 직전 정지 1회 발생")
     print(f"  judge 재작성 루프(분기 ③): {n_rag - 1}회 (judge_retries={final.get('judge_retries')})")
 
     _print_header("5) 최종 요약")
