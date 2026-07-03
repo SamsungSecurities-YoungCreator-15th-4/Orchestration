@@ -11,7 +11,7 @@ from app.state import RiskState
 
 
 def judge_eval(state: RiskState) -> dict:
-    retries = state.get("judge_retries", 0) + 1
+    retries = (state.get("judge_retries") or 0) + 1
     force_fail_n = int(os.environ.get("RISK_FORCE_JUDGE_FAIL", "0"))
 
     if retries <= force_fail_n:

@@ -17,7 +17,7 @@ def _dummy_returns(n: int = 250, scale: float = 0.012) -> list[float]:
 
 
 def var_engine(state: RiskState) -> dict:
-    run_config = state.get("run_config", {})
+    run_config = state.get("run_config") or {}
     metrics = compute_metrics(
         returns=_dummy_returns(),
         portfolio=state.get("portfolio", []),

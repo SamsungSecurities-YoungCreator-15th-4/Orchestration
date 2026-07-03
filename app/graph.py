@@ -21,14 +21,17 @@ def route_after_conflict_check(state: RiskState) -> str:
 
     재시도 소진 시에는 충돌을 approval에 첨부한 채 사람 판단(approval_gate)으로 넘긴다.
     """
-    if state.get("conflicts") and state.get("conflict_retries", 0) < MAX_CONFLICT_RETRIES:
+    conflict_retries = state.get("conflict_retries") or 0
+    if state.get("conflicts") and conflict_retries < MAX_CONFLICT_RETRIES:
         return "extract_ips"
     return "approval_gate"
 
 
 def route_after_judge(state: RiskState) -> str:
     """분기 ③: judge 통과 또는 재시도 소진 시 리포트 조립, 아니면 재작성 루프."""
-    if state.get("judge", {}).get("passed") or state.get("judge_retries", 0) >= MAX_JUDGE_RETRIES:
+    judge = state.get("judge") or {}
+    judge_retries = state.get("judge_retries") or 0
+    if judge.get("passed") or judge_retries >= MAX_JUDGE_RETRIES:
         return "assemble_report"
     return "rag_cite"
 
