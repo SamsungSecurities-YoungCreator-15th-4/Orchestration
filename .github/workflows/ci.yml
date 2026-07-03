@@ -1,0 +1,39 @@
+name: CI
+
+# PR이 main/develop 대상으로 열리거나, main/develop에 푸시될 때 자동 체크한다.
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+# 모든 job에 대한 기본 GITHUB_TOKEN 권한을 최소(읽기 전용)로 제한한다.
+# 우리 CI는 lint·test만 수행하므로 contents: read 로 충분하다.
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - run: ruff check app scripts tests ui
+
+  test:
+    name: Test (pytest + graph smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: pytest
+      # 외부 API 키 없이 그래프가 완주하는지 스모크 테스트 (LLM 노드는 스텁)
+      - run: python scripts/run_graph.py --auto-approve

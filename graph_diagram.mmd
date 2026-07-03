@@ -1,0 +1,31 @@
+flowchart TD
+    START([START]) --> load_inputs
+
+    subgraph DET["결정론 계층 (Deterministic)"]
+        load_inputs[load_inputs<br/>config·더미 데이터 로드]
+        conflict_check[conflict_check<br/>룰 기반 충돌 검사]
+        var_engine[var_engine<br/>VaR/CVaR·스트레스 계산]
+        assemble_report[assemble_report<br/>리포트 조립]
+    end
+
+    subgraph LLM["LLM 계층 (스텁)"]
+        extract_ips[extract_ips<br/>IPS 프로필 추출]
+        rag_cite[rag_cite<br/>설명·인용 생성]
+        judge_eval[judge_eval<br/>LLM-as-judge 평가]
+    end
+
+    subgraph HITL["HITL 계층"]
+        approval_gate[approval_gate<br/>승인 게이트 · interrupt_before]
+    end
+
+    load_inputs --> extract_ips
+    extract_ips --> conflict_check
+    conflict_check -- "분기① 충돌 & retries < 1" --> extract_ips
+    conflict_check -- "충돌 없음 or 재시도 소진" --> approval_gate
+    approval_gate -. "② interrupt_before<br/>(사람 승인 대기)" .-> approval_gate
+    approval_gate --> var_engine
+    var_engine --> rag_cite
+    rag_cite --> judge_eval
+    judge_eval -- "분기③ 불통과 & retries < 3" --> rag_cite
+    judge_eval -- "통과 or 재시도 소진" --> assemble_report
+    assemble_report --> END([END])

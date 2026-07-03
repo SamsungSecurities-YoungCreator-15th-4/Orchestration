@@ -1,0 +1,13 @@
+langgraph
+langchain
+langchain-openai
+langsmith
+pydantic
+numpy
+pandas
+pyarrow
+scipy
+pyyaml
+python-dotenv
+pytest
+streamlit
