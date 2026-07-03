@@ -38,6 +38,8 @@ def compute_metrics(
     """
     horizons = horizons or [1, 10]
     arr = np.asarray(returns, dtype=float)
+    if arr.size == 0:
+        raise ValueError("수익률 데이터(returns)가 비어 있어 리스크 지표를 계산할 수 없습니다.")
     total_value = sum(p["value_krw"] for p in portfolio)
 
     var_1d = historical_var(arr, confidence)

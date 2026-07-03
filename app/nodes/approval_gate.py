@@ -8,12 +8,12 @@ from app.state import RiskState
 
 
 def approval_gate(state: RiskState) -> dict:
-    approval = dict(state.get("approval", {}))
+    approval = dict(state.get("approval") or {})
     approval.update(
         {
             "status": "locked",
-            "locked_as_of": state.get("run_config", {}).get("as_of_date"),
-            "unresolved_conflicts": state.get("conflicts", []),
+            "locked_as_of": (state.get("run_config") or {}).get("as_of_date"),
+            "unresolved_conflicts": state.get("conflicts") or [],
         }
     )
     return {"approval": approval}

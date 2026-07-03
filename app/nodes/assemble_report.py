@@ -9,23 +9,24 @@ DISCLAIMER = (
 
 
 def assemble_report(state: RiskState) -> dict:
-    metrics = state.get("metrics", {})
+    metrics = state.get("metrics") or {}
+    run_config = state.get("run_config") or {}
     report = {
         "title": "재현가능·설명가능 리스크 리포트 (스켈레톤)",
-        "as_of_date": state.get("run_config", {}).get("as_of_date"),
+        "as_of_date": run_config.get("as_of_date"),
         "trace_id": state.get("trace_id"),
         "client_summary": {
             "raw_input": state.get("raw_input"),
-            "ips": state.get("ips", {}),
+            "ips": state.get("ips") or {},
         },
-        "approval": state.get("approval", {}),
+        "approval": state.get("approval") or {},
         "risk_metrics": metrics,
-        "explanations": state.get("explanations", []),
-        "citations": state.get("citations", []),
-        "judge": state.get("judge", {}),
+        "explanations": state.get("explanations") or [],
+        "citations": state.get("citations") or [],
+        "judge": state.get("judge") or {},
         "reproducibility": {
-            "config_hash": state.get("run_config", {}).get("config_hash"),
-            "computation_hash": metrics.get("meta", {}).get("computation_hash"),
+            "config_hash": run_config.get("config_hash"),
+            "computation_hash": (metrics.get("meta") or {}).get("computation_hash"),
         },
         "disclaimer": DISCLAIMER,
     }

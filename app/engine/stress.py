@@ -23,16 +23,18 @@ def run_stress(portfolio: list[dict], scenario: dict | None = None) -> dict:
     scenario = scenario or SCENARIO_HIGH_RATE_STRONG_USD
     total_value = sum(p["value_krw"] for p in portfolio)
     loss = 0.0
-    by_asset = {}
+    # 같은 자산군이 여러 종목으로 들어와도 덮어쓰지 않고 합산한다.
+    by_asset: dict[str, float] = {}
     for p in portfolio:
-        shock = scenario["shocks"].get(p["asset_class"], 0.0)
+        asset_class = p["asset_class"]
+        shock = scenario["shocks"].get(asset_class, 0.0)
         asset_loss = p["value_krw"] * shock
-        by_asset[p["asset_class"]] = round(asset_loss, 2)
+        by_asset[asset_class] = by_asset.get(asset_class, 0.0) + asset_loss
         loss += asset_loss
     return {
         "scenario": scenario["name"],
         "description": scenario["description"],
         "loss_krw": round(loss, 2),
         "loss_pct": round(loss / total_value, 8) if total_value else 0.0,
-        "by_asset": by_asset,
+        "by_asset": {k: round(v, 2) for k, v in by_asset.items()},
     }

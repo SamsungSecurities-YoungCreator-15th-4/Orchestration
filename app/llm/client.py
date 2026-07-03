@@ -11,6 +11,11 @@ def get_llm(temperature: float = 0.0):
     호출 시점에 import하여, 키가 없는 스켈레톤 실행 경로에서는
     어떤 외부 의존도 초기화되지 않도록 한다.
     """
+    required = ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_DEPLOYMENT"]
+    missing = [k for k in required if not os.environ.get(k)]
+    if missing:
+        raise RuntimeError(f"필수 Azure OpenAI 환경 변수가 누락되었습니다: {', '.join(missing)}")
+
     from langchain_openai import AzureChatOpenAI
 
     return AzureChatOpenAI(

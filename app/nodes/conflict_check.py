@@ -8,8 +8,8 @@ LIQUIDITY_LIMIT_RATIO = 0.30
 
 
 def conflict_check(state: RiskState) -> dict:
-    ips = state.get("ips", {})
-    portfolio = state.get("portfolio", [])
+    ips = state.get("ips") or {}
+    portfolio = state.get("portfolio") or []
     total_value = sum(p["value_krw"] for p in portfolio)
 
     liquidity_total = sum(
