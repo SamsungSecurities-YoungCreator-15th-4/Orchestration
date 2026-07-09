@@ -84,8 +84,17 @@ def load_returns(
     - 실데이터 전환 시에도 이 함수의 인터페이스(반환 스키마)는 유지한다.
     """
     cache_path = Path(cache_path)
+    expected_end = pd.Timestamp(as_of_date or DEFAULT_AS_OF).date()
+
+    # 캐시가 요청 파라미터(n·종료일)와 일치할 때만 재사용한다.
+    # 파라미터가 달라졌는데 낡은 캐시를 반환하면 재현성·정확성이 깨진다.
     if use_cache and cache_path.exists():
-        return pd.read_parquet(cache_path)[ASSET_CLASSES]
+        try:
+            cached = pd.read_parquet(cache_path)
+            if len(cached) == n and cached.index.max().date() == expected_end:
+                return cached[ASSET_CLASSES]
+        except Exception:
+            pass  # 손상·불일치 캐시는 무시하고 재생성
 
     df = _generate_dummy_returns(n=n, as_of_date=as_of_date)
     if use_cache:

@@ -38,6 +38,10 @@ def portfolio_returns(returns_df: pd.DataFrame, portfolio: list[dict]) -> np.nda
     weights: dict[str, float] = {}
     for p in portfolio:
         ac = p["asset_class"]
+        if ac not in returns_df.columns:
+            # 수익률 데이터에 없는 자산군은 비중이 조용히 누락되어 리스크가
+            # 과소평가되므로 명시적으로 실패시킨다.
+            raise ValueError(f"수익률 데이터에 존재하지 않는 자산군입니다: {ac}")
         weights[ac] = weights.get(ac, 0.0) + p["value_krw"] / total_value
     w = np.array([weights.get(c, 0.0) for c in returns_df.columns], dtype=float)
     return returns_df.to_numpy(dtype=float) @ w

@@ -9,8 +9,17 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.engine.metrics import compute_metrics, historical_cvar, historical_var
-from app.engine.returns import _generate_dummy_returns
+import tempfile
+
+import pytest
+
+from app.engine.metrics import (
+    compute_metrics,
+    historical_cvar,
+    historical_var,
+    portfolio_returns,
+)
+from app.engine.returns import _generate_dummy_returns, load_returns
 from app.engine.stress import run_all_stress
 
 # 6자산군 더미 포트폴리오(총 50억) — load_inputs.py와 동일 구조.
@@ -82,6 +91,22 @@ def test_stress_A_worse_than_B():
     """고금리(A)는 전 자산 동반 하락이라 강달러(B, FX 상쇄)보다 손실이 크다."""
     res = run_all_stress(PORTFOLIO)
     assert abs(res["A_high_rate"]["loss_krw"]) > abs(res["B_strong_usd"]["loss_krw"])
+
+
+# --- 리뷰 반영: 캐시 무효화 & 자산군 방어 ---
+def test_cache_invalidated_on_param_change():
+    """캐시가 있어도 as_of_date가 다르면 재생성한다(낡은 캐시 반환 금지)."""
+    path = tempfile.mktemp(suffix=".parquet")
+    a = load_returns(as_of_date="2026-07-03", cache_path=path)
+    b = load_returns(as_of_date="2026-06-01", cache_path=path)
+    assert a.index.max() != b.index.max()
+
+
+def test_portfolio_returns_rejects_unknown_asset():
+    """수익률 데이터에 없는 자산군은 비중 누락 대신 명시적으로 실패한다."""
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    with pytest.raises(ValueError):
+        portfolio_returns(df, [{"asset_class": "crypto", "value_krw": 100}])
 
 
 # --- 재현성 ---
