@@ -9,13 +9,17 @@ DISCLAIMER = (
 
 
 def _portfolio_summary(portfolio: list[dict]) -> dict:
-    total_value = sum(p.get("value_krw", 0) for p in portfolio)
+    total_value = sum(
+        (p.get("value_krw") or 0) if isinstance(p, dict) else 0
+        for p in portfolio
+    )
     return {
         "total_value_krw": total_value,
         "asset_count": len(portfolio),
         "weights": {
             p.get("asset_class", f"asset_{idx}"): p.get("weight")
             for idx, p in enumerate(portfolio)
+            if isinstance(p, dict)
         },
     }
 
@@ -67,6 +71,7 @@ def _warnings(state: RiskState, evidence: dict) -> list[str]:
 
 def assemble_report(state: RiskState) -> dict:
     metrics = state.get("metrics") or {}
+    meta = metrics.get("meta") or {}
     run_config = state.get("run_config") or {}
     portfolio = state.get("portfolio") or []
     citations = state.get("citations") or []
@@ -103,9 +108,9 @@ def assemble_report(state: RiskState) -> dict:
         "reproducibility": {
             "as_of_date": run_config.get("as_of_date"),
             "config_hash": run_config.get("config_hash"),
-            "computation_hash": (metrics.get("meta") or {}).get("computation_hash"),
-            "method": (metrics.get("meta") or {}).get("method"),
-            "n_observations": (metrics.get("meta") or {}).get("n_observations"),
+            "computation_hash": meta.get("computation_hash"),
+            "method": meta.get("method"),
+            "n_observations": meta.get("n_observations"),
             "trace_id": state.get("trace_id"),
         },
         "warnings": warnings,

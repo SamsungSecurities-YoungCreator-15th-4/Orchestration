@@ -25,28 +25,22 @@ def _has_text(value) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _is_verified_citation(citation) -> bool:
+    return (
+        isinstance(citation, dict)
+        and citation.get("verified") is True
+        and _has_text(citation.get("quote"))
+        and _has_text(citation.get("source"))
+        and _has_text(citation.get("chunk_id"))
+    )
+
+
 def _verified_citations(citations: list) -> list[dict]:
-    return [
-        c for c in citations
-        if isinstance(c, dict)
-        and c.get("verified") is True
-        and _has_text(c.get("quote"))
-        and _has_text(c.get("source"))
-        and _has_text(c.get("chunk_id"))
-    ]
+    return [c for c in citations if _is_verified_citation(c)]
 
 
 def _invalid_citations(citations: list) -> list[dict]:
-    return [
-        c for c in citations
-        if not (
-            isinstance(c, dict)
-            and c.get("verified") is True
-            and _has_text(c.get("quote"))
-            and _has_text(c.get("source"))
-            and _has_text(c.get("chunk_id"))
-        )
-    ]
+    return [c for c in citations if not _is_verified_citation(c)]
 
 
 def _build_checks(state: RiskState) -> list[dict]:

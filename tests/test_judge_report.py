@@ -133,6 +133,23 @@ def test_assemble_report_adds_summary_evidence_governance():
     assert report["reproducibility"]["computation_hash"] == "metric-hash"
 
 
+def test_assemble_report_portfolio_summary_is_defensive():
+    state = {
+        **BASE_STATE,
+        "portfolio": [
+            {"asset_class": "cash", "value_krw": None, "weight": 0.1},
+            {"asset_class": "bond", "value_krw": 1500, "weight": None},
+            "malformed",
+        ],
+    }
+
+    report = assemble_report(state)["report"]
+
+    assert report["summary"]["portfolio"]["total_value_krw"] == 1500
+    assert report["summary"]["portfolio"]["asset_count"] == 3
+    assert report["summary"]["portfolio"]["weights"] == {"cash": 0.1, "bond": None}
+
+
 def test_assemble_report_warns_when_judge_failed_or_citations_missing(monkeypatch):
     monkeypatch.delenv("RISK_FORCE_JUDGE_FAIL", raising=False)
     state = {
