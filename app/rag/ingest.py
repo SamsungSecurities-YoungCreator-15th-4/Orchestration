@@ -144,7 +144,12 @@ def collect_corpus_texts(corpus_dir: str = DEFAULT_CORPUS_DIR) -> list[tuple[str
         if not cat_dir.is_dir():
             continue
         for pdf in sorted(cat_dir.glob("*.pdf")):
-            out.append((pdf.name, load_pdf_text(pdf), category))
+            try:
+                text = load_pdf_text(pdf)
+            except Exception as e:  # 손상·암호화 PDF — 배치 전체를 죽이지 않고 건너뜀
+                log.error("PDF 로드 실패(건너뜀): %s — %s", pdf.name, e)
+                continue
+            out.append((pdf.name, text, category))
     return out
 
 

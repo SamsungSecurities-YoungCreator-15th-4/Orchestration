@@ -95,3 +95,39 @@ def test_parse_candidates_garbage_safe():
     assert parse_candidates('[{"quote": "", "chunk_id": "a.pdf::0000"}]', chunks) == []
     got = parse_candidates('앞말 [{"quote": "본문", "chunk_id": "a.pdf::0000"}] 뒷말', chunks)
     assert len(got) == 1 and got[0].source == "a.pdf"
+
+
+def test_parse_candidates_bracket_prefix_safe():
+    """LLM이 [참고] 같은 대괄호 문구를 덧붙여도 JSON 배열만 추출한다(리뷰 반영)."""
+    chunks = [{"chunk_id": "a.pdf::0000", "source": "a.pdf", "text": "본문"}]
+    raw = '[참고] 아래는 인용입니다.\n[{"quote": "본문", "chunk_id": "a.pdf::0000"}]\n[끝]'
+    got = parse_candidates(raw, chunks)
+    assert len(got) == 1
+    assert got[0].quote == "본문"
+
+
+class _BrokenRetriever:
+    """검색 중 네트워크류 예외를 던지는 fake."""
+
+    def invoke(self, query: str):
+        raise ConnectionError("simulated embed/chroma failure")
+
+
+def test_retrieval_error_falls_back_to_empty_citations():
+    """검색 단계 예외 시 그래프를 죽이지 않고 빈 인용으로 폴백한다(리뷰 반영)."""
+    out = rag_cite({"metrics": {}}, llm=_FakeLLM(), retriever=_BrokenRetriever())
+    assert out["citations"] == []
+    assert len(out["explanations"]) >= 2
+
+
+class _NoneRetriever:
+    """invoke가 None을 반환하는 비정상 fake."""
+
+    def invoke(self, query: str):
+        return None
+
+
+def test_none_retriever_result_falls_back():
+    """retriever가 None을 반환해도 TypeError 없이 폴백한다(리뷰 반영)."""
+    out = rag_cite({"metrics": {}}, llm=_FakeLLM(), retriever=_NoneRetriever())
+    assert out["citations"] == []

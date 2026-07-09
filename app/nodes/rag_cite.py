@@ -77,7 +77,8 @@ def parse_candidates(raw: str, chunks: list[dict]) -> list[Citation]:
     chunk_id가 검색 청크에 없는 후보도 여기서는 남겨둔다 —
     최종 판정은 verify_citations(순수 결정론)가 한다.
     """
-    m = re.search(r"\[.*\]", raw, flags=re.DOTALL)
+    # [{ … }] 형태만 타겟팅 — LLM이 [참고] 같은 대괄호 문구를 덧붙여도 안전
+    m = re.search(r"\[\s*\{.*\}\s*\]", raw, flags=re.DOTALL)
     if not m:
         return []
     try:
@@ -152,10 +153,14 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
             log.warning("RAG 검색 불가 — 폴백(빈 인용): %s", e)
             return {"explanations": explanations, "citations": []}
 
-    # --- 2) 근거 청크 검색 ---
+    # --- 2) 근거 청크 검색 (임베딩 API·Chroma 쿼리 — 네트워크 오류 가능) ---
     from app.rag.retriever import retrieve_chunks
 
-    chunks = retrieve_chunks(retriever, _build_query(metrics))
+    try:
+        chunks = retrieve_chunks(retriever, _build_query(metrics))
+    except Exception as e:
+        log.warning("RAG 검색 중 오류 — 폴백(빈 인용): %s", e)
+        return {"explanations": explanations, "citations": []}
     if not chunks:
         log.warning("검색 결과 청크 없음 — 폴백(빈 인용)")
         return {"explanations": explanations, "citations": []}

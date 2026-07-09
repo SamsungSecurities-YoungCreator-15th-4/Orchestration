@@ -72,3 +72,22 @@ def test_build_index_no_pdf_exits_cleanly(tmp_path):
         "skipped": [],
         "reason": "no_pdf",
     }
+
+
+def test_corrupted_pdf_skipped_not_fatal(tmp_path, monkeypatch):
+    """손상 PDF 하나가 배치 전체를 중단시키지 않는다(리뷰 반영)."""
+    import app.rag.ingest as ingest
+
+    cat_dir = tmp_path / "macro"
+    cat_dir.mkdir()
+    (cat_dir / "bad.pdf").write_bytes(b"not a pdf")
+    (cat_dir / "good.pdf").write_bytes(b"not a pdf either")
+
+    def fake_load(path):
+        if path.name == "bad.pdf":
+            raise ValueError("simulated corrupted pdf")
+        return "정상 본문"
+
+    monkeypatch.setattr(ingest, "load_pdf_text", fake_load)
+    loaded = ingest.collect_corpus_texts(corpus_dir=str(tmp_path))
+    assert [(name, cat) for name, _text, cat in loaded] == [("good.pdf", "macro")]

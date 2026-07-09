@@ -52,7 +52,7 @@ def retrieve_chunks(retriever, query: str) -> list[dict]:
     각 항목: {"text", "chunk_id", "source", "category", "char_start", "char_end"}
     (metadata 키가 없으면 빈 값으로 채운다 — 검증 로직이 KeyError 없이 동작하도록.)
     """
-    docs = retriever.invoke(query)
+    docs = retriever.invoke(query) or []
     out: list[dict] = []
     for d in docs:
         md = d.metadata or {}

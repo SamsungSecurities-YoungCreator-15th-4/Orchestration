@@ -57,7 +57,7 @@ def verify_citations(
     - 공백 정규화 후, 인용문이 청크 원문의 부분문자열이어야 한다.
     - 빈 인용문은 탈락.
     """
-    text_by_id = {c["chunk_id"]: c.get("text", "") for c in chunks}
+    text_by_id = {c["chunk_id"]: c.get("text", "") for c in chunks if "chunk_id" in c}
 
     verified: list[Citation] = []
     rejected: list[dict] = []
