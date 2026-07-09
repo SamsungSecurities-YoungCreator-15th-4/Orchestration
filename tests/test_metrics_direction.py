@@ -2,6 +2,7 @@
 
 초안 합격선: 정확한 수치값이 아니라 '방향(단조성)'과 '재현성'을 검증한다.
 """
+import functools
 import sys
 from datetime import date
 from pathlib import Path
@@ -18,8 +19,10 @@ from app.engine.metrics import (
     historical_var,
     portfolio_returns,
 )
+from app.engine import returns as returns_mod
 from app.engine.returns import _generate_dummy_returns, load_returns
 from app.engine.stress import run_all_stress
+from app.nodes.var_engine import var_engine
 
 # 6자산군 더미 포트폴리오(총 50억) — load_inputs.py와 동일 구조.
 PORTFOLIO = [
@@ -145,3 +148,52 @@ def test_reproducibility_identical():
     m2 = _metrics()
     assert m1 == m2
     assert m1["meta"]["computation_hash"] == m2["meta"]["computation_hash"]
+
+
+# --- 리뷰 반영: 관측기간(config)·출처 메타 ---
+def test_methodology_ref_in_meta():
+    """meta.methodology_ref로 리포트 수치가 방법론 문서와 연결된다."""
+    m = compute_metrics(
+        _generate_dummy_returns(n=250, as_of_date="2026-07-03"),
+        PORTFOLIO,
+        methodology_ref="methodology_var_cvar_2026",
+    )
+    assert m["meta"]["methodology_ref"] == "methodology_var_cvar_2026"
+
+
+def _load_returns_with_tmp_cache(tmp_path):
+    """load_returns의 cache_path 기본값을 tmp 경로로 고정한 래퍼.
+
+    cache_path 기본값은 함수 정의 시점에 CACHE_PATH로 바인딩되므로
+    app.engine.returns.CACHE_PATH를 몽키패치해도 반영되지 않는다.
+    var_engine이 참조하는 load_returns 자체를 이 래퍼로 교체해야
+    테스트가 레포의 실제 data/returns_dummy.parquet 캐시를 건드리지 않는다.
+    """
+    return functools.partial(returns_mod.load_returns, cache_path=tmp_path / "cache.parquet")
+
+
+def test_var_engine_respects_lookback_config(tmp_path, monkeypatch):
+    """var_lookback_days가 config에서 오면 실제 관측 개수(n_observations)에 반영된다."""
+    monkeypatch.setattr(
+        "app.nodes.var_engine.load_returns", _load_returns_with_tmp_cache(tmp_path)
+    )
+    state = {
+        "run_config": {
+            "as_of_date": "2026-07-03",
+            "var_lookback_days": 120,
+        },
+        "portfolio": PORTFOLIO,
+    }
+    result = var_engine(state)
+    assert result["metrics"]["meta"]["n_observations"] == 120
+    assert result["metrics"]["meta"]["data_period"]["n_observations"] == 120
+
+
+def test_var_engine_defaults_lookback_when_unset(tmp_path, monkeypatch):
+    """var_lookback_days가 config에 없으면 returns.py의 DEFAULT_N(250)을 쓴다."""
+    monkeypatch.setattr(
+        "app.nodes.var_engine.load_returns", _load_returns_with_tmp_cache(tmp_path)
+    )
+    state = {"run_config": {"as_of_date": "2026-07-03"}, "portfolio": PORTFOLIO}
+    result = var_engine(state)
+    assert result["metrics"]["meta"]["n_observations"] == 250

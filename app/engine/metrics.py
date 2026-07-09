@@ -55,6 +55,7 @@ def compute_metrics(
     base_currency: str = "KRW",
     data_period_meta: dict | None = None,
     fx_applied: bool = False,
+    methodology_ref: str | None = None,
 ) -> dict:
     """포트폴리오 리스크 지표 일괄 계산.
 
@@ -107,6 +108,7 @@ def compute_metrics(
             "base_currency": base_currency,
             "fx_applied": fx_applied,
             "data_period": data_period_meta,
+            "methodology_ref": methodology_ref,
         },
         "results": {"per_horizon": per_horizon, "stress": stress},
     }
@@ -122,6 +124,7 @@ def compute_metrics(
             "base_currency": base_currency,
             "data_period": data_period_meta,
             "fx_applied": fx_applied,
+            "methodology_ref": methodology_ref,
             "computation_hash": sha256_of_dict(payload),
         },
     }
