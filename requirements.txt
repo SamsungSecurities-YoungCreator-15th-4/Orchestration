@@ -1,7 +1,9 @@
 langgraph
 langchain
 langchain-openai
+langchain-chroma
 langsmith
+chromadb
 pydantic
 numpy
 pandas
@@ -9,5 +11,6 @@ pyarrow
 scipy
 pyyaml
 python-dotenv
+pypdf
 pytest
 streamlit

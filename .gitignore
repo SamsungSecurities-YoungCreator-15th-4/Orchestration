@@ -12,6 +12,7 @@ __pycache__/
 # 데이터 산출물
 data/*.parquet
 data/*.csv
+data/chroma/
 
 # RAG 코퍼스 원문 PDF — 저작권상 로컬 전용, git 미포함 (구조·매니페스트만 추적)
 /corpus/**/*.pdf
