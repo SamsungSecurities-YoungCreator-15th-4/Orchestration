@@ -3,15 +3,14 @@
 초안 합격선: 정확한 수치값이 아니라 '방향(단조성)'과 '재현성'을 검증한다.
 """
 import sys
+from datetime import date
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-import tempfile
-
-import pytest
 
 from app.engine.metrics import (
     compute_metrics,
@@ -78,35 +77,65 @@ def test_stress_two_scenarios_present():
     assert set(res.keys()) == {"A_high_rate", "B_strong_usd"}
 
 
+def test_stress_loss_sign_is_positive():
+    """스트레스 loss_krw는 양수=손실 규약(historical_var와 통일)이다."""
+    res = run_all_stress(PORTFOLIO)
+    assert res["A_high_rate"]["loss_krw"] > 0
+    assert res["B_strong_usd"]["loss_krw"] > 0
+
+
 def test_stress_loss_ge_normal_var():
-    """스트레스 손실 ≥ 평상시(정상 시장) 1일 VaR."""
+    """스트레스 손실 ≥ 평상시(정상 시장) 1일 VaR. (양수=손실이라 abs 불필요)"""
     m = _metrics()
     var_1d_krw = m["horizons"]["1d"]["var_krw"]
     for name, res in m["stress"].items():
-        # 손실은 음수로 저장되므로 절대값으로 비교.
-        assert abs(res["loss_krw"]) >= var_1d_krw, name
+        assert res["loss_krw"] >= var_1d_krw, name
 
 
 def test_stress_A_worse_than_B():
     """고금리(A)는 전 자산 동반 하락이라 강달러(B, FX 상쇄)보다 손실이 크다."""
     res = run_all_stress(PORTFOLIO)
-    assert abs(res["A_high_rate"]["loss_krw"]) > abs(res["B_strong_usd"]["loss_krw"])
+    assert res["A_high_rate"]["loss_krw"] > res["B_strong_usd"]["loss_krw"]
 
 
-# --- 리뷰 반영: 캐시 무효화 & 자산군 방어 ---
-def test_cache_invalidated_on_param_change():
-    """캐시가 있어도 as_of_date가 다르면 재생성한다(낡은 캐시 반환 금지)."""
-    path = tempfile.mktemp(suffix=".parquet")
-    a = load_returns(as_of_date="2026-07-03", cache_path=path)
-    b = load_returns(as_of_date="2026-06-01", cache_path=path)
-    assert a.index.max() != b.index.max()
-
-
+# --- 리뷰 반영: 자산군 방어 (metrics + stress 대칭) ---
 def test_portfolio_returns_rejects_unknown_asset():
     """수익률 데이터에 없는 자산군은 비중 누락 대신 명시적으로 실패한다."""
     df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
     with pytest.raises(ValueError):
         portfolio_returns(df, [{"asset_class": "crypto", "value_krw": 100}])
+
+
+def test_stress_rejects_unknown_asset():
+    """시나리오에 충격이 정의되지 않은 자산군은 조용히 0이 아니라 실패한다."""
+    with pytest.raises(ValueError):
+        run_all_stress([{"asset_class": "crypto", "value_krw": 100}])
+
+
+# --- 리뷰 반영: 캐시 무효화(낡은 캐시 미반환) & 비영업일 히트 ---
+def test_stale_cache_not_returned(tmp_path):
+    """낡은 캐시가 있어도 파라미터가 다르면 반환하지 않고 재생성한다."""
+    path = tmp_path / "returns.parquet"
+    load_returns(as_of_date="2026-06-01", cache_path=path)  # 낡은 캐시 심기
+    fresh = load_returns(as_of_date="2026-07-03", cache_path=path)
+    assert fresh.index.max().date() == date(2026, 7, 3)
+
+
+def test_cache_hit_returns_same_data(tmp_path):
+    """캐시 히트 경로도 동일 데이터를 반환한다."""
+    path = tmp_path / "returns.parquet"
+    first = load_returns(as_of_date="2026-07-03", cache_path=path)
+    second = load_returns(as_of_date="2026-07-03", cache_path=path)
+    pd.testing.assert_frame_equal(first, second, check_freq=False)
+
+
+def test_cache_hits_on_non_business_day(tmp_path):
+    """비영업일(토) as_of_date에서도 캐시가 히트해 재기록하지 않는다."""
+    path = tmp_path / "returns.parquet"
+    load_returns(as_of_date="2026-07-04", cache_path=path)  # 토요일 → 직전 영업일 정규화
+    mtime1 = path.stat().st_mtime_ns
+    load_returns(as_of_date="2026-07-04", cache_path=path)
+    assert path.stat().st_mtime_ns == mtime1  # 두 번째 호출이 재기록하지 않음
 
 
 # --- 재현성 ---

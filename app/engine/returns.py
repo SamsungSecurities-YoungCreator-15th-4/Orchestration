@@ -10,10 +10,13 @@
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 # 6자산군 — load_inputs.py 포트폴리오와 동일한 asset_class 키(순서 고정)
 ASSET_CLASSES = [
@@ -84,7 +87,12 @@ def load_returns(
     - 실데이터 전환 시에도 이 함수의 인터페이스(반환 스키마)는 유지한다.
     """
     cache_path = Path(cache_path)
-    expected_end = pd.Timestamp(as_of_date or DEFAULT_AS_OF).date()
+    # 기대 종료일은 생성 로직(_generate_dummy_returns의 bdate_range)과 동일하게
+    # 정규화한다. as_of_date가 비영업일이면 직전 영업일로 물러나므로, 원본
+    # as_of_date로 비교하면 캐시가 영원히 미스 나며 매번 재기록한다.
+    expected_end = pd.bdate_range(
+        end=pd.Timestamp(as_of_date or DEFAULT_AS_OF), periods=1
+    )[0].date()
 
     # 캐시가 요청 파라미터(n·종료일)와 일치할 때만 재사용한다.
     # 파라미터가 달라졌는데 낡은 캐시를 반환하면 재현성·정확성이 깨진다.
@@ -93,8 +101,10 @@ def load_returns(
             cached = pd.read_parquet(cache_path)
             if len(cached) == n and cached.index.max().date() == expected_end:
                 return cached[ASSET_CLASSES]
-        except Exception:
-            pass  # 손상·불일치 캐시는 무시하고 재생성
+        except Exception as e:
+            # 파라미터 불일치가 아니라 pyarrow 미설치·스키마 변경 등 재생성으로
+            # 해결되지 않는 실패도 삼킬 수 있으므로 흔적을 남긴다.
+            logger.warning("캐시 읽기 실패, 재생성합니다: %s (%s)", cache_path, e)
 
     df = _generate_dummy_returns(n=n, as_of_date=as_of_date)
     if use_cache:

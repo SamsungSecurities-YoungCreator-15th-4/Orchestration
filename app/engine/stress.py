@@ -45,16 +45,31 @@ DEFAULT_SCENARIOS = [SCENARIO_A_HIGH_RATE, SCENARIO_B_STRONG_USD]
 
 
 def run_stress(portfolio: list[dict], scenario: dict | None = None) -> dict:
-    """단일 시나리오의 자산군별 고정 충격을 적용해 포트폴리오 손실액/손실률 계산."""
+    """단일 시나리오의 자산군별 고정 충격을 적용해 포트폴리오 손실액/손실률 계산.
+
+    부호 규약: loss_krw·loss_pct는 **양수 = 손실**(historical_var 규약과 통일).
+    소비자(assemble_report)가 abs()로 부호를 뒤집을 필요가 없다.
+    """
     scenario = scenario or SCENARIO_A_HIGH_RATE
+    shocks = scenario["shocks"]
+
+    # 시나리오에 충격이 정의되지 않은 자산군은 조용히 0으로 통과하면 리스크가
+    # 과소평가된다(portfolio_returns와 동일한 방어). cash: 0.0처럼 '의도된 0'은
+    # 시나리오에 명시돼 있으므로 이 검증에 걸리지 않는다.
+    unknown = {p["asset_class"] for p in portfolio} - shocks.keys()
+    if unknown:
+        raise ValueError(
+            f"시나리오 {scenario['name']}에 충격이 정의되지 않은 자산군입니다: {sorted(unknown)}"
+        )
+
     total_value = sum(p["value_krw"] for p in portfolio)
-    loss = 0.0
+    loss = 0.0  # 양수 = 손실
     # 같은 자산군이 여러 종목으로 들어와도 덮어쓰지 않고 합산한다.
     by_asset: dict[str, float] = {}
     for p in portfolio:
         asset_class = p["asset_class"]
-        shock = scenario["shocks"].get(asset_class, 0.0)
-        asset_loss = p["value_krw"] * shock
+        # shock이 음수(하락)면 손실은 양수가 된다.
+        asset_loss = -(p["value_krw"] * shocks[asset_class])
         by_asset[asset_class] = by_asset.get(asset_class, 0.0) + asset_loss
         loss += asset_loss
     return {

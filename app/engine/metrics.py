@@ -61,6 +61,13 @@ def compute_metrics(
     - returns_df: 6자산군 일별 수익률(app.engine.returns.load_returns 결과).
     - horizon h일 지표는 1일 지표의 sqrt(h) 스케일링(√t rule).
     - meta.computation_hash: 입력+결과의 sha256 (재현성 검증용).
+
+    §8 TBD 메모(실데이터 전환 시):
+    - fx_applied/base_currency는 현재 계산에 관여하지 않는 통과 메타데이터다.
+      실데이터 전환 시 fx_applied는 인자가 아니라 returns_df(로더)가 스스로
+      답해야 하는 속성으로 승격한다(예: returns.py의 fx_meta(df)로 내려받기).
+    - data_period는 computation_hash payload에 포함해, '같은 수익률 값·다른
+      기간'이 해시로 구분되도록 한다(아래 payload 참조).
     """
     horizons = horizons or [1, 10]
     if returns_df is None or len(returns_df) == 0:
@@ -99,6 +106,7 @@ def compute_metrics(
             "portfolio": portfolio,
             "base_currency": base_currency,
             "fx_applied": fx_applied,
+            "data_period": data_period_meta,
         },
         "results": {"per_horizon": per_horizon, "stress": stress},
     }
