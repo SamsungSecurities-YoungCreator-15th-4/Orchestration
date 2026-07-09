@@ -1,4 +1,4 @@
-"""최종 리포트 조립 — 전체 state 요약 + 면책 문구 + trace_id."""
+"""최종 리포트 조립 — 수치·근거·심사·재현성 정보를 한 덩어리로 구성."""
 from app.state import RiskState
 
 DISCLAIMER = (
@@ -8,26 +8,107 @@ DISCLAIMER = (
 )
 
 
+def _portfolio_summary(portfolio: list[dict]) -> dict:
+    total_value = sum(p.get("value_krw", 0) for p in portfolio)
+    return {
+        "total_value_krw": total_value,
+        "asset_count": len(portfolio),
+        "weights": {
+            p.get("asset_class", f"asset_{idx}"): p.get("weight")
+            for idx, p in enumerate(portfolio)
+        },
+    }
+
+
+def _risk_summary(metrics: dict) -> dict:
+    horizons = metrics.get("horizons") or {}
+    stress = metrics.get("stress") or {}
+    return {
+        "confidence": metrics.get("confidence"),
+        "var_1d_krw": (horizons.get("1d") or {}).get("var_krw"),
+        "cvar_1d_krw": (horizons.get("1d") or {}).get("cvar_krw"),
+        "var_10d_krw": (horizons.get("10d") or {}).get("var_krw"),
+        "cvar_10d_krw": (horizons.get("10d") or {}).get("cvar_krw"),
+        "stress_scenario": stress.get("scenario"),
+        "stress_loss_krw": stress.get("loss_krw"),
+        "stress_loss_pct": stress.get("loss_pct"),
+    }
+
+
+def _evidence_summary(citations: list[dict]) -> dict:
+    verified = [
+        c for c in citations
+        if isinstance(c, dict) and c.get("verified") is True
+    ]
+    sources = sorted({
+        c.get("source", "") for c in verified
+        if c.get("source")
+    })
+    return {
+        "citation_count": len(citations),
+        "verified_citation_count": len(verified),
+        "sources": sources,
+        "coverage": "verified" if verified else "not_available",
+    }
+
+
+def _warnings(state: RiskState, evidence: dict) -> list[str]:
+    warnings: list[str] = []
+    judge = state.get("judge") or {}
+    if not judge.get("passed"):
+        warnings.append("judge 품질 점검이 통과되지 않았습니다.")
+    if evidence["verified_citation_count"] == 0:
+        warnings.append("검증 통과 인용이 없어 사람 검토가 필요합니다.")
+    if state.get("conflicts"):
+        warnings.append("IPS 충돌 이력이 approval에 첨부되어 있습니다.")
+    warnings.extend(judge.get("manual_review_flags") or [])
+    return list(dict.fromkeys(warnings))
+
+
 def assemble_report(state: RiskState) -> dict:
     metrics = state.get("metrics") or {}
     run_config = state.get("run_config") or {}
+    portfolio = state.get("portfolio") or []
+    citations = state.get("citations") or []
+    evidence = _evidence_summary(citations)
+    judge = state.get("judge") or {}
+    warnings = _warnings(state, evidence)
     report = {
-        "title": "재현가능·설명가능 리스크 리포트 (스켈레톤)",
+        "title": "재현가능·설명가능 리스크 리포트",
         "as_of_date": run_config.get("as_of_date"),
         "trace_id": state.get("trace_id"),
+        "summary": {
+            "portfolio": _portfolio_summary(portfolio),
+            "risk": _risk_summary(metrics),
+            "judge_passed": judge.get("passed"),
+            "evidence_coverage": evidence["coverage"],
+        },
         "client_summary": {
             "raw_input": state.get("raw_input"),
             "ips": state.get("ips") or {},
+            "portfolio": portfolio,
         },
         "approval": state.get("approval") or {},
         "risk_metrics": metrics,
         "explanations": state.get("explanations") or [],
-        "citations": state.get("citations") or [],
-        "judge": state.get("judge") or {},
+        "citations": citations,
+        "evidence": evidence,
+        "judge": judge,
+        "governance": {
+            "approval_status": (state.get("approval") or {}).get("status"),
+            "judge_retries": state.get("judge_retries") or 0,
+            "judge_passed": judge.get("passed"),
+            "manual_review_required": bool(warnings),
+        },
         "reproducibility": {
+            "as_of_date": run_config.get("as_of_date"),
             "config_hash": run_config.get("config_hash"),
             "computation_hash": (metrics.get("meta") or {}).get("computation_hash"),
+            "method": (metrics.get("meta") or {}).get("method"),
+            "n_observations": (metrics.get("meta") or {}).get("n_observations"),
+            "trace_id": state.get("trace_id"),
         },
+        "warnings": warnings,
         "disclaimer": DISCLAIMER,
     }
     return {"report": report}
