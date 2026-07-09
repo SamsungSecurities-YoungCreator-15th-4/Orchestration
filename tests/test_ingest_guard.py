@@ -2,17 +2,72 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.rag.ingest import (
     CHUNK_OVERLAP,
     CHUNK_SIZE,
+    EMBED_BATCH_SIZE,
+    MAX_RATE_LIMIT_RETRIES,
+    RATE_LIMIT_WAIT_SECONDS,
+    add_chunks_with_retries,
     build_index,
     chunk_text,
     contains_tbd,
     make_chunk_id,
     partition_documents,
 )
+
+
+def _make_chunks(n: int) -> list[dict]:
+    return [
+        {
+            "chunk_id": make_chunk_id("bulk.pdf", i),
+            "text": f"청크 본문 {i}",
+            "source": "bulk.pdf",
+            "category": "macro",
+            "char_start": i * 10,
+            "char_end": i * 10 + 7,
+        }
+        for i in range(n)
+    ]
+
+
+def _rate_limit_error():
+    import httpx
+    from openai import RateLimitError
+
+    request = httpx.Request("POST", "https://example.test/embeddings")
+    response = httpx.Response(429, request=request)
+    return RateLimitError("rate limited", response=response, body=None)
+
+
+class _FakeEmbedder:
+    def __init__(self, failures: int = 0):
+        self.failures = failures
+        self.calls = 0
+        self.batch_sizes: list[int] = []
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        self.calls += 1
+        self.batch_sizes.append(len(texts))
+        if self.calls <= self.failures:
+            raise _rate_limit_error()
+        return [[0.0] for _ in texts]
+
+
+class _FakeStore:
+    def __init__(self, embedder: _FakeEmbedder):
+        self.embedder = embedder
+        self.ids_by_call: list[list[str]] = []
+
+    def add_texts(self, *, texts: list[str], metadatas: list[dict], ids: list[str]):
+        assert len(texts) == len(metadatas) == len(ids)
+        self.embedder.embed_documents(texts)
+        self.ids_by_call.append(ids)
+        return ids
 
 
 def test_tbd_marker_detected():
@@ -91,3 +146,47 @@ def test_corrupted_pdf_skipped_not_fatal(tmp_path, monkeypatch):
     monkeypatch.setattr(ingest, "load_pdf_text", fake_load)
     loaded = ingest.collect_corpus_texts(corpus_dir=str(tmp_path))
     assert [(name, cat) for name, _text, cat in loaded] == [("good.pdf", "macro")]
+
+
+def test_add_chunks_batches_are_limited_to_embed_batch_size():
+    embedder = _FakeEmbedder()
+    store = _FakeStore(embedder)
+    chunks = _make_chunks(1363)
+
+    add_chunks_with_retries(store, chunks)
+
+    assert sum(embedder.batch_sizes) == 1363
+    assert max(embedder.batch_sizes) <= EMBED_BATCH_SIZE
+    assert len(embedder.batch_sizes) == 22
+    assert store.ids_by_call[0][0] == "bulk.pdf::0000"
+    assert store.ids_by_call[-1][-1] == "bulk.pdf::1362"
+
+
+def test_add_chunks_retries_rate_limit_then_succeeds(monkeypatch):
+    sleeps: list[int] = []
+    import app.rag.ingest as ingest
+
+    monkeypatch.setattr(ingest.time, "sleep", lambda seconds: sleeps.append(seconds))
+    embedder = _FakeEmbedder(failures=2)
+    store = _FakeStore(embedder)
+
+    add_chunks_with_retries(store, _make_chunks(3))
+
+    assert embedder.calls == 3
+    assert sleeps == [RATE_LIMIT_WAIT_SECONDS, RATE_LIMIT_WAIT_SECONDS]
+    assert store.ids_by_call == [["bulk.pdf::0000", "bulk.pdf::0001", "bulk.pdf::0002"]]
+
+
+def test_add_chunks_raises_after_max_rate_limit_retries(monkeypatch):
+    sleeps: list[int] = []
+    import app.rag.ingest as ingest
+
+    monkeypatch.setattr(ingest.time, "sleep", lambda seconds: sleeps.append(seconds))
+    embedder = _FakeEmbedder(failures=MAX_RATE_LIMIT_RETRIES + 1)
+    store = _FakeStore(embedder)
+
+    with pytest.raises(RuntimeError, match="재시도 한도"):
+        add_chunks_with_retries(store, _make_chunks(1))
+
+    assert embedder.calls == MAX_RATE_LIMIT_RETRIES + 1
+    assert sleeps == [RATE_LIMIT_WAIT_SECONDS] * MAX_RATE_LIMIT_RETRIES

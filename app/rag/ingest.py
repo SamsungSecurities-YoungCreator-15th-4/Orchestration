@@ -16,6 +16,7 @@ import argparse
 import logging
 import os
 import shutil
+import time
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -34,6 +35,9 @@ CATEGORIES = ("house_view", "macro", "tax")
 # 임베딩: Azure OpenAI text-embedding-3-small (전용 배포명은 .env에서 읽는다)
 EMBEDDING_MODEL = "text-embedding-3-small"
 EMBEDDING_DEPLOYMENT_ENV = "AZURE_OPENAI_EMBEDDING_DEPLOYMENT"
+EMBED_BATCH_SIZE = 64
+RATE_LIMIT_WAIT_SECONDS = 65
+MAX_RATE_LIMIT_RETRIES = 20
 
 
 # ---------------------------------------------------------------------------
@@ -132,6 +136,15 @@ def build_embedder():
     )
 
 
+def is_rate_limit_error(exc: Exception) -> bool:
+    """openai.RateLimitError 여부를 지연 import로 판별한다."""
+    try:
+        from openai import RateLimitError
+    except ImportError:
+        return False
+    return isinstance(exc, RateLimitError)
+
+
 def collect_corpus_texts(corpus_dir: str = DEFAULT_CORPUS_DIR) -> list[tuple[str, str, str]]:
     """카테고리 폴더의 PDF를 정렬된 순서로 로드한다.
 
@@ -151,6 +164,72 @@ def collect_corpus_texts(corpus_dir: str = DEFAULT_CORPUS_DIR) -> list[tuple[str
                 continue
             out.append((pdf.name, text, category))
     return out
+
+
+def _chunk_metadata(chunk: dict) -> dict:
+    return {
+        "source": chunk["source"],
+        "category": chunk["category"],
+        "chunk_id": chunk["chunk_id"],
+        "char_start": chunk["char_start"],
+        "char_end": chunk["char_end"],
+    }
+
+
+def add_chunks_with_retries(
+    store,
+    chunks: list[dict],
+    *,
+    batch_size: int = EMBED_BATCH_SIZE,
+    wait_seconds: int = RATE_LIMIT_WAIT_SECONDS,
+    max_retries: int = MAX_RATE_LIMIT_RETRIES,
+) -> None:
+    """Chroma add_texts를 배치 단위로 호출하고 429는 같은 배치를 재시도한다.
+
+    임베딩 호출은 Chroma/LangChain 내부의 embedding_function 경유로만 발생한다.
+    여기서는 RateLimitError를 예외 식별에만 사용하고 원시 API를 직접 호출하지 않는다.
+    """
+    if batch_size <= 0:
+        raise ValueError("batch_size는 1 이상이어야 합니다.")
+
+    total_batches = (len(chunks) + batch_size - 1) // batch_size
+    for start in range(0, len(chunks), batch_size):
+        batch = chunks[start:start + batch_size]
+        batch_no = start // batch_size + 1
+        retries = 0
+        while True:
+            try:
+                log.info(
+                    "임베딩 배치 추가: %d/%d (%d청크)",
+                    batch_no,
+                    total_batches,
+                    len(batch),
+                )
+                store.add_texts(
+                    texts=[c["text"] for c in batch],
+                    metadatas=[_chunk_metadata(c) for c in batch],
+                    ids=[c["chunk_id"] for c in batch],  # 결정론적 id → 재실행 시 동일 인덱스
+                )
+                break
+            except Exception as e:
+                if not is_rate_limit_error(e):
+                    raise
+                retries += 1
+                if retries > max_retries:
+                    raise RuntimeError(
+                        "Azure OpenAI RateLimitError 재시도 한도를 초과했습니다: "
+                        f"batch={batch_no}/{total_batches}, "
+                        f"max_retries={max_retries}, wait_seconds={wait_seconds}"
+                    ) from e
+                log.warning(
+                    "RateLimitError 발생: 배치 %d/%d, 재시도 %d/%d. %d초 대기 후 재시도합니다.",
+                    batch_no,
+                    total_batches,
+                    retries,
+                    max_retries,
+                    wait_seconds,
+                )
+                time.sleep(wait_seconds)
 
 
 def build_index(
@@ -197,20 +276,7 @@ def build_index(
         embedding_function=embedder,
         persist_directory=persist_dir,
     )
-    store.add_texts(
-        texts=[c["text"] for c in all_chunks],
-        metadatas=[
-            {
-                "source": c["source"],
-                "category": c["category"],
-                "chunk_id": c["chunk_id"],
-                "char_start": c["char_start"],
-                "char_end": c["char_end"],
-            }
-            for c in all_chunks
-        ],
-        ids=[c["chunk_id"] for c in all_chunks],  # 결정론적 id → 재실행 시 동일 인덱스
-    )
+    add_chunks_with_retries(store, all_chunks)
 
     log.info("인덱싱 완료: 문서 %d건, 청크 %d개 → %s", len(accepted), len(all_chunks), persist_dir)
     return {
