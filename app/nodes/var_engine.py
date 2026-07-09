@@ -15,7 +15,7 @@ def var_engine(state: RiskState) -> dict:
     run_config = state.get("run_config") or {}
 
     returns_df = load_returns(
-        n=run_config.get("var_lookback_days", DEFAULT_N),
+        n=run_config.get("var_lookback_days") or DEFAULT_N,
         as_of_date=run_config.get("as_of_date"),
     )
 

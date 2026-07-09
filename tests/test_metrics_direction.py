@@ -197,3 +197,16 @@ def test_var_engine_defaults_lookback_when_unset(tmp_path, monkeypatch):
     state = {"run_config": {"as_of_date": "2026-07-03"}, "portfolio": PORTFOLIO}
     result = var_engine(state)
     assert result["metrics"]["meta"]["n_observations"] == 250
+
+
+def test_var_engine_defaults_lookback_when_explicitly_none(tmp_path, monkeypatch):
+    """var_lookback_days가 명시적으로 None이어도(.get 기본값이 안 먹는 경우) DEFAULT_N을 쓴다."""
+    monkeypatch.setattr(
+        "app.nodes.var_engine.load_returns", _load_returns_with_tmp_cache(tmp_path)
+    )
+    state = {
+        "run_config": {"as_of_date": "2026-07-03", "var_lookback_days": None},
+        "portfolio": PORTFOLIO,
+    }
+    result = var_engine(state)
+    assert result["metrics"]["meta"]["n_observations"] == 250
