@@ -1,27 +1,28 @@
 """결정론 리스크 엔진 호출 노드 — app.engine.metrics.compute_metrics() 위임.
 
-더미 수익률은 고정 수식으로 생성한 배열(랜덤 미사용)이며,
-동일 config 하에서 computation_hash가 항상 동일함을 보장한다.
+6자산군 일별 수익률은 app.engine.returns.load_returns()에서 받아온다
+(현재는 고정 수식 더미 + parquet 캐시, 실데이터 전환 시 그 로더만 교체).
+동일 config·동일 데이터 하에서 computation_hash가 항상 동일함을 보장한다.
+
+이 노드는 approval_gate를 통과한 뒤에만 실행되므로 승인 여부를 다시 검사하지 않는다.
 """
-import numpy as np
-
 from app.engine.metrics import compute_metrics
+from app.engine.returns import data_period, load_returns
 from app.state import RiskState
-
-
-def _dummy_returns(n: int = 250, scale: float = 0.012) -> list[float]:
-    """고정 수식 기반 더미 일간 수익률 (결정론적, 랜덤 미사용)."""
-    i = np.arange(n, dtype=float)
-    r = scale * np.sin(0.9 * i) + 0.004 * np.cos(0.35 * i) - 0.0002
-    return [float(x) for x in r]
 
 
 def var_engine(state: RiskState) -> dict:
     run_config = state.get("run_config") or {}
+
+    returns_df = load_returns(as_of_date=run_config.get("as_of_date"))
+
     metrics = compute_metrics(
-        returns=_dummy_returns(),
+        returns_df=returns_df,
         portfolio=state.get("portfolio", []),
         confidence=run_config.get("var_confidence", 0.99),
         horizons=run_config.get("horizons", [1, 10]),
+        base_currency=run_config.get("base_currency", "KRW"),
+        data_period_meta=data_period(returns_df),
+        fx_applied=False,  # 더미 단계 — 환율 미적용. 실데이터 전환 시 True/규약 반영.
     )
     return {"metrics": metrics}

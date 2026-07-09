@@ -3,24 +3,50 @@
 주의: 이 패키지(app.engine)에서는 langchain/llm 관련 import 금지.
 """
 
-# 고금리·강달러 시나리오: 자산군별 고정 충격률 (결정론적)
-SCENARIO_HIGH_RATE_STRONG_USD = {
-    "name": "high_rate_strong_usd",
-    "description": "기준금리 +200bp, 원/달러 +10% 복합 충격",
+# 스트레스 시나리오는 사전 정의·문서화되며, 실행 시점에 임의로 생성되지 않는다.
+# 충격 크기는 역사적 사례를 참조한 초안 제안값이며(reference 병기), 최종 강도는
+# 회의에서 확정한다. 자산군별 변환 규칙(shocks)은 결정론적으로 고정된다.
+
+# 시나리오 A — 고금리 충격: 정책금리 급등 국면.
+# 금리 상승 → 채권 가격 직접 하락(듀레이션 효과) + 주식·대체 할인율 상승 충격.
+SCENARIO_A_HIGH_RATE = {
+    "name": "A_high_rate",
+    "description": "정책금리 +250bp 급등 — 채권 가격 직접 하락 + 주식·대체 할인율 상승 충격",
+    "reference": "2022년 고금리 국면(한·미 정책금리 급등) 참조 — 초안 제안값",
     "shocks": {
         "domestic_equity": -0.12,
-        "global_equity": -0.06,
-        "domestic_bond": -0.05,
-        "global_bond": -0.01,
-        "alternatives": -0.08,
+        "global_equity": -0.08,
+        "domestic_bond": -0.06,
+        "global_bond": -0.04,
+        "alternatives": -0.07,
         "cash": 0.0,
     },
 }
 
+# 시나리오 B — 강달러 충격: 원/달러 급등 국면.
+# 미헤지 외화자산은 FX 환산이익이 위험회피 손실을 일부 상쇄(순손실 유지),
+# 원화자산은 자본유출·위험회피 충격을 직접 받는다.
+SCENARIO_B_STRONG_USD = {
+    "name": "B_strong_usd",
+    "description": "원/달러 +10% 급등 — 미헤지 외화자산 FX 환산이익이 위험회피 손실을 일부 상쇄, 원화자산은 위험회피 직격",
+    "reference": "2022년 강달러 국면(원/달러 1,440원대) 참조 — 초안 제안값",
+    "shocks": {
+        "domestic_equity": -0.09,
+        "global_equity": -0.03,
+        "domestic_bond": -0.03,
+        "global_bond": -0.01,
+        "alternatives": -0.05,
+        "cash": 0.0,
+    },
+}
+
+# 기본 시나리오 세트(순서 고정) — 리포트에 A·B 나란히 표기.
+DEFAULT_SCENARIOS = [SCENARIO_A_HIGH_RATE, SCENARIO_B_STRONG_USD]
+
 
 def run_stress(portfolio: list[dict], scenario: dict | None = None) -> dict:
-    """자산군별 고정 충격을 적용해 포트폴리오 손실액/손실률 계산."""
-    scenario = scenario or SCENARIO_HIGH_RATE_STRONG_USD
+    """단일 시나리오의 자산군별 고정 충격을 적용해 포트폴리오 손실액/손실률 계산."""
+    scenario = scenario or SCENARIO_A_HIGH_RATE
     total_value = sum(p["value_krw"] for p in portfolio)
     loss = 0.0
     # 같은 자산군이 여러 종목으로 들어와도 덮어쓰지 않고 합산한다.
@@ -34,7 +60,19 @@ def run_stress(portfolio: list[dict], scenario: dict | None = None) -> dict:
     return {
         "scenario": scenario["name"],
         "description": scenario["description"],
+        "reference": scenario.get("reference"),
         "loss_krw": round(loss, 2),
         "loss_pct": round(loss / total_value, 8) if total_value else 0.0,
         "by_asset": {k: round(v, 2) for k, v in by_asset.items()},
     }
+
+
+def run_all_stress(
+    portfolio: list[dict], scenarios: list[dict] | None = None
+) -> dict:
+    """기본 시나리오 세트(A 고금리 · B 강달러)를 모두 적용해 결과를 나란히 반환.
+
+    동일 포트폴리오·동일 시나리오 정의면 결과는 항상 동일하게 재현된다.
+    """
+    scenarios = scenarios or DEFAULT_SCENARIOS
+    return {s["name"]: run_stress(portfolio, s) for s in scenarios}
