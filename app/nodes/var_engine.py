@@ -7,14 +7,17 @@
 이 노드는 approval_gate를 통과한 뒤에만 실행되므로 승인 여부를 다시 검사하지 않는다.
 """
 from app.engine.metrics import compute_metrics
-from app.engine.returns import data_period, load_returns
+from app.engine.returns import DEFAULT_N, data_period, load_returns
 from app.state import RiskState
 
 
 def var_engine(state: RiskState) -> dict:
     run_config = state.get("run_config") or {}
 
-    returns_df = load_returns(as_of_date=run_config.get("as_of_date"))
+    returns_df = load_returns(
+        n=run_config.get("var_lookback_days") or DEFAULT_N,
+        as_of_date=run_config.get("as_of_date"),
+    )
 
     metrics = compute_metrics(
         returns_df=returns_df,
@@ -24,5 +27,6 @@ def var_engine(state: RiskState) -> dict:
         base_currency=run_config.get("base_currency", "KRW"),
         data_period_meta=data_period(returns_df),
         fx_applied=False,  # 더미 단계 — 환율 미적용. 실데이터 전환 시 True/규약 반영.
+        methodology_ref="methodology_var_cvar_2026",
     )
     return {"metrics": metrics}
