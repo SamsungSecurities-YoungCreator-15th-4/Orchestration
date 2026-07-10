@@ -112,6 +112,34 @@ def test_judge_empty_citations_passes_with_manual_review_flag(monkeypatch):
     assert out["judge"]["manual_review_flags"] == ["검증 통과 인용 0건"]
 
 
+def test_judge_strict_citation_gate_rejects_empty_citations(monkeypatch):
+    monkeypatch.delenv("RISK_FORCE_JUDGE_FAIL", raising=False)
+    state = {
+        **BASE_STATE,
+        "run_config": {
+            **BASE_STATE["run_config"],
+            "strict_citation_gate": True,
+        },
+        "citations": [],
+    }
+
+    out = judge_eval(state)
+    citation_check = next(
+        check
+        for check in out["judge"]["checks"]
+        if check["name"] == "verified_citations_present"
+    )
+
+    assert out["judge"]["passed"] is False
+    assert citation_check["required"] is True
+    assert "검증 통과 인용 0건" in out["judge"]["reason"]
+    assert out["judge"]["manual_review_flags"] == []
+    assert out["judge_feedback"] == out["judge"]["reason"]
+    report = assemble_report({**state, **out})["report"]
+    assert report["governance"]["strict_citation_gate"] is True
+    assert report["governance"]["manual_review_required"] is True
+
+
 def test_assemble_report_adds_summary_evidence_governance():
     judged = judge_eval(BASE_STATE)
     state = {**BASE_STATE, **judged}
@@ -130,6 +158,7 @@ def test_assemble_report_adds_summary_evidence_governance():
         "coverage": "verified",
     }
     assert report["governance"]["judge_passed"] is True
+    assert report["governance"]["strict_citation_gate"] is False
     assert report["governance"]["manual_review_required"] is False
     assert report["reproducibility"]["computation_hash"] == "metric-hash"
 

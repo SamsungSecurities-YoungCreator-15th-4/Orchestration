@@ -44,6 +44,7 @@ def _invalid_citations(citations: list) -> list[dict]:
 
 
 def _build_checks(state: RiskState) -> list[dict]:
+    run_config = state.get("run_config") or {}
     metrics = state.get("metrics") or {}
     explanations = state.get("explanations") or []
     citations = state.get("citations") or []
@@ -56,6 +57,7 @@ def _build_checks(state: RiskState) -> list[dict]:
     ]
     verified = _verified_citations(citations)
     invalid = _invalid_citations(citations)
+    strict_citation_gate = run_config.get("strict_citation_gate") is True
 
     return [
         {
@@ -91,7 +93,7 @@ def _build_checks(state: RiskState) -> list[dict]:
         {
             "name": "verified_citations_present",
             "passed": bool(verified),
-            "required": False,
+            "required": strict_citation_gate,
             "detail": f"검증 통과 인용 {len(verified)}건",
         },
         {

@@ -147,6 +147,7 @@ def assemble_report(state: RiskState) -> dict:
             "approval_status": (state.get("approval") or {}).get("status"),
             "judge_retries": state.get("judge_retries") or 0,
             "judge_passed": judge.get("passed"),
+            "strict_citation_gate": run_config.get("strict_citation_gate") is True,
             "manual_review_required": bool(warnings),
         },
         "reproducibility": {
