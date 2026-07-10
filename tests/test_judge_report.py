@@ -122,6 +122,7 @@ def test_assemble_report_adds_summary_evidence_governance():
     assert report["summary"]["portfolio"]["total_value_krw"] == 2000
     assert report["summary"]["risk"]["var_1d_krw"] == 10
     assert report["summary"]["risk"]["stress_loss_krw"] == -100
+    assert report["summary"]["risk"]["stress_scenario_count"] == 1
     assert report["evidence"] == {
         "citation_count": 1,
         "verified_citation_count": 1,
@@ -131,6 +132,51 @@ def test_assemble_report_adds_summary_evidence_governance():
     assert report["governance"]["judge_passed"] is True
     assert report["governance"]["manual_review_required"] is False
     assert report["reproducibility"]["computation_hash"] == "metric-hash"
+
+
+def test_assemble_report_summarizes_multiple_stress_scenarios_deterministically():
+    state = {
+        **BASE_STATE,
+        "metrics": {
+            **BASE_STATE["metrics"],
+            "stress": {
+                "B_strong_usd": {
+                    "scenario": "B_strong_usd",
+                    "description": "강달러 충격",
+                    "reference": "강달러 근거",
+                    "loss_krw": 212_500_000.0,
+                    "loss_pct": 0.0425,
+                },
+                "A_high_rate": {
+                    "scenario": "A_high_rate",
+                    "description": "고금리 충격",
+                    "reference": "고금리 근거",
+                    "loss_krw": 370_000_000.0,
+                    "loss_pct": 0.074,
+                },
+            },
+            "meta": {
+                **BASE_STATE["metrics"]["meta"],
+                "methodology_ref": "methodology_var_cvar_2026",
+            },
+        },
+    }
+
+    report = assemble_report(state)["report"]
+    risk = report["summary"]["risk"]
+
+    assert risk["stress_scenario"] == "A_high_rate"
+    assert risk["stress_loss_krw"] == 370_000_000.0
+    assert risk["stress_loss_pct"] == 0.074
+    assert risk["stress_scenario_count"] == 2
+    assert [item["scenario"] for item in risk["stress_scenarios"]] == [
+        "A_high_rate",
+        "B_strong_usd",
+    ]
+    assert risk["stress_scenarios"][0]["reference"] == "고금리 근거"
+    assert report["reproducibility"]["methodology_ref"] == (
+        "methodology_var_cvar_2026"
+    )
 
 
 def test_assemble_report_portfolio_summary_is_defensive():

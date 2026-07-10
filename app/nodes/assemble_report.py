@@ -24,6 +24,52 @@ def _portfolio_summary(portfolio: list[dict]) -> dict:
     }
 
 
+def _compact_stress_scenario(name: str | None, result: dict) -> dict:
+    return {
+        "scenario": result.get("scenario") or name,
+        "description": result.get("description"),
+        "reference": result.get("reference"),
+        "loss_krw": result.get("loss_krw"),
+        "loss_pct": result.get("loss_pct"),
+    }
+
+
+def _stress_summary(stress: dict) -> dict:
+    """단일·다중 스트레스 결과를 같은 리포트 요약 계약으로 정규화한다."""
+    if not isinstance(stress, dict) or not stress:
+        scenarios = []
+    elif any(key in stress for key in ("scenario", "loss_krw", "loss_pct")):
+        scenarios = [_compact_stress_scenario(stress.get("scenario"), stress)]
+    else:
+        scenarios = [
+            _compact_stress_scenario(str(name), result)
+            for name, result in sorted(stress.items(), key=lambda item: str(item[0]))
+            if isinstance(result, dict)
+        ]
+
+    candidates = [
+        scenario
+        for scenario in scenarios
+        if isinstance(scenario.get("loss_krw"), (int, float))
+        and not isinstance(scenario.get("loss_krw"), bool)
+    ]
+    worst = min(
+        candidates,
+        key=lambda scenario: (
+            -scenario["loss_krw"],
+            str(scenario.get("scenario") or ""),
+        ),
+        default={},
+    )
+    return {
+        "stress_scenario": worst.get("scenario"),
+        "stress_loss_krw": worst.get("loss_krw"),
+        "stress_loss_pct": worst.get("loss_pct"),
+        "stress_scenario_count": len(scenarios),
+        "stress_scenarios": scenarios,
+    }
+
+
 def _risk_summary(metrics: dict) -> dict:
     horizons = metrics.get("horizons") or {}
     stress = metrics.get("stress") or {}
@@ -33,9 +79,7 @@ def _risk_summary(metrics: dict) -> dict:
         "cvar_1d_krw": (horizons.get("1d") or {}).get("cvar_krw"),
         "var_10d_krw": (horizons.get("10d") or {}).get("var_krw"),
         "cvar_10d_krw": (horizons.get("10d") or {}).get("cvar_krw"),
-        "stress_scenario": stress.get("scenario"),
-        "stress_loss_krw": stress.get("loss_krw"),
-        "stress_loss_pct": stress.get("loss_pct"),
+        **_stress_summary(stress),
     }
 
 
@@ -111,6 +155,7 @@ def assemble_report(state: RiskState) -> dict:
             "computation_hash": meta.get("computation_hash"),
             "method": meta.get("method"),
             "n_observations": meta.get("n_observations"),
+            "methodology_ref": meta.get("methodology_ref"),
             "trace_id": state.get("trace_id"),
         },
         "warnings": warnings,
