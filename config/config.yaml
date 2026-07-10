@@ -11,3 +11,6 @@ var_lookback_days: 250
 # 수익률 데이터 출처. "real"=yfinance 실데이터(기본, parquet 캐시 커밋됨),
 # "dummy"=고정 수식 더미(네트워크 불요, 오프라인 개발/테스트용).
 data_source: real
+# 개발 기본값은 인용 0건을 수동 검토 대상으로 허용한다.
+# 제출·시연에서는 true로 전환해 검증 통과 인용이 없으면 judge를 실패시킨다.
+strict_citation_gate: false
