@@ -20,7 +20,7 @@ from app.engine.metrics import (
     portfolio_returns,
 )
 from app.engine import returns as returns_mod
-from app.engine.returns import _generate_dummy_returns, load_returns
+from app.engine.returns import ASSET_CLASSES, _generate_dummy_returns, load_real_returns, load_returns
 from app.engine.stress import run_all_stress
 from app.nodes.var_engine import var_engine
 
@@ -173,7 +173,12 @@ def _load_returns_with_tmp_cache(tmp_path):
 
 
 def test_var_engine_respects_lookback_config(tmp_path, monkeypatch):
-    """var_lookback_days가 config에서 오면 실제 관측 개수(n_observations)에 반영된다."""
+    """var_lookback_days가 config에서 오면 실제 관측 개수(n_observations)에 반영된다.
+
+    data_source="dummy"로 고정 — 기본값(real)은 committed 캐시와 파라미터가
+    맞을 때만 오프라인으로 동작하므로, lookback을 임의로 바꾸는 이 테스트는
+    네트워크 의존 없는 dummy 경로로 검증한다.
+    """
     monkeypatch.setattr(
         "app.nodes.var_engine.load_returns", _load_returns_with_tmp_cache(tmp_path)
     )
@@ -181,6 +186,7 @@ def test_var_engine_respects_lookback_config(tmp_path, monkeypatch):
         "run_config": {
             "as_of_date": "2026-07-03",
             "var_lookback_days": 120,
+            "data_source": "dummy",
         },
         "portfolio": PORTFOLIO,
     }
@@ -190,23 +196,92 @@ def test_var_engine_respects_lookback_config(tmp_path, monkeypatch):
 
 
 def test_var_engine_defaults_lookback_when_unset(tmp_path, monkeypatch):
-    """var_lookback_days가 config에 없으면 returns.py의 DEFAULT_N(250)을 쓴다."""
+    """var_lookback_days가 config에 없으면 returns.py의 DEFAULT_N(250)을 쓴다(dummy 경로)."""
     monkeypatch.setattr(
         "app.nodes.var_engine.load_returns", _load_returns_with_tmp_cache(tmp_path)
     )
-    state = {"run_config": {"as_of_date": "2026-07-03"}, "portfolio": PORTFOLIO}
+    state = {
+        "run_config": {"as_of_date": "2026-07-03", "data_source": "dummy"},
+        "portfolio": PORTFOLIO,
+    }
     result = var_engine(state)
     assert result["metrics"]["meta"]["n_observations"] == 250
 
 
 def test_var_engine_defaults_lookback_when_explicitly_none(tmp_path, monkeypatch):
-    """var_lookback_days가 명시적으로 None이어도(.get 기본값이 안 먹는 경우) DEFAULT_N을 쓴다."""
+    """var_lookback_days가 명시적으로 None이어도(.get 기본값이 안 먹는 경우) DEFAULT_N을 쓴다(dummy 경로)."""
     monkeypatch.setattr(
         "app.nodes.var_engine.load_returns", _load_returns_with_tmp_cache(tmp_path)
     )
     state = {
-        "run_config": {"as_of_date": "2026-07-03", "var_lookback_days": None},
+        "run_config": {
+            "as_of_date": "2026-07-03",
+            "var_lookback_days": None,
+            "data_source": "dummy",
+        },
         "portfolio": PORTFOLIO,
     }
     result = var_engine(state)
     assert result["metrics"]["meta"]["n_observations"] == 250
+
+
+# --- 실데이터 경로 (yfinance + parquet 캐시) ---
+def test_load_real_returns_uses_committed_cache():
+    """레포에 커밋된 실데이터 캐시(data/returns_real.parquet)를 읽는다 — 네트워크 불요.
+
+    R7 요구사항(현장 시연은 인터넷 없이도 동작해야 함)의 핵심 전제를 검증한다.
+    """
+    df = load_real_returns(n=250, as_of_date="2026-07-03")
+    assert df.shape == (250, len(ASSET_CLASSES))
+    assert list(df.columns) == ASSET_CLASSES
+    assert not df.isna().any().any()
+
+
+def test_real_cache_invalidated_on_param_mismatch(tmp_path, monkeypatch):
+    """캐시 meta와 요청 파라미터가 다르면 재수집 경로를 탄다.
+
+    _fetch_real_returns를 스텁으로 바꿔 네트워크 없이 캐시 히트/미스 로직만 검증한다.
+    """
+    calls = []
+
+    def fake_fetch(n, as_of_date, rf_annual):
+        calls.append(n)
+        idx = pd.bdate_range(end=pd.Timestamp(as_of_date), periods=n)
+        return pd.DataFrame({c: 0.001 for c in ASSET_CLASSES}, index=idx)[ASSET_CLASSES]
+
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", fake_fetch)
+    cache_path = tmp_path / "real.parquet"
+    meta_path = tmp_path / "real.meta.json"
+
+    load_real_returns(n=5, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+    load_real_returns(n=5, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+    assert calls == [5]  # 두 번째 호출은 캐시 히트 — 재수집 없음
+
+    load_real_returns(n=6, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+    assert calls == [5, 6]  # n이 달라졌으니 재수집
+
+
+def test_var_engine_uses_real_data_by_default():
+    """data_source 미지정 시 기본값 real — committed 캐시로 오프라인 동작, fx_applied=True."""
+    state = {
+        "run_config": {"as_of_date": "2026-07-03", "var_lookback_days": 250},
+        "portfolio": PORTFOLIO,
+    }
+    result = var_engine(state)
+    meta = result["metrics"]["meta"]
+    assert meta["fx_applied"] is True
+    assert meta["n_observations"] == 250
+    assert meta["methodology_ref"] == "methodology_var_cvar_2026"
+
+
+def test_var_engine_dummy_source_explicit_opt_in(tmp_path, monkeypatch):
+    """data_source="dummy"를 명시하면 fx_applied=False로 더미 경로를 탄다."""
+    monkeypatch.setattr(
+        "app.nodes.var_engine.load_returns", _load_returns_with_tmp_cache(tmp_path)
+    )
+    state = {
+        "run_config": {"as_of_date": "2026-07-03", "data_source": "dummy"},
+        "portfolio": PORTFOLIO,
+    }
+    result = var_engine(state)
+    assert result["metrics"]["meta"]["fx_applied"] is False

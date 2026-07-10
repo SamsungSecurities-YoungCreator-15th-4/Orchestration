@@ -1,0 +1,13 @@
+{
+  "n": 250,
+  "as_of_date": "2026-07-03",
+  "rf_annual": 0.0325,
+  "tickers": {
+    "domestic_equity": "^KS11",
+    "domestic_bond": "114260.KS",
+    "global_equity": "ACWI",
+    "global_bond": "IGOV",
+    "alternatives": "GLD"
+  },
+  "fx_ticker": "KRW=X"
+}

@@ -14,6 +14,11 @@ data/*.parquet
 data/*.csv
 data/chroma/
 
+# 실데이터 스냅샷은 예외 — R7 현장 시연이 인터넷 없이도 재현되도록 고정 커밋
+# (methodology_var_cvar_2026 기준일 2026-07-03 데이터, load_real_returns 캐시)
+!data/returns_real.parquet
+!data/returns_real.meta.json
+
 # RAG 코퍼스 원문 PDF — 저작권상 로컬 전용, git 미포함 (구조·매니페스트만 추적)
 /corpus/**/*.pdf
 !/corpus/**/.gitkeep
