@@ -278,6 +278,37 @@ def test_extract_close_handles_flat_columns():
     assert list(out) == [1.0, 2.0, 3.0]
 
 
+def test_apply_fx_conversion_formula():
+    """r_KRW = (1+r_USD)*(1+r_FX) - 1 공식이 정확히 계산되는지 직접 검증(네트워크 불요).
+
+    이전에는 이 산식이 커밋된 실데이터 캐시(블랙박스)나 _fetch_real_returns를
+    통째로 스텁으로 바꾼 캐시 테스트로만 간접 검증됐고, 공식 자체를 검증하는
+    테스트가 없었다. _apply_fx_conversion을 순수 함수로 분리해 직접 확인한다.
+    """
+    idx = pd.bdate_range("2026-01-01", periods=2)
+    # 현지통화(USD) 수익률: global_equity/global_bond/alternatives = +2%, 나머지 = +1%
+    pct = pd.DataFrame(
+        {ac: [0.02, 0.02] if ac in returns_mod.USD_DENOMINATED else [0.01, 0.01]
+         for ac in returns_mod.REAL_ASSET_TICKERS},
+        index=idx,
+    )
+    fx_ret = pd.Series([0.03, -0.01], index=idx)  # USD/KRW 변동률(1일차 원화약세, 2일차 원화강세)
+
+    out = returns_mod._apply_fx_conversion(pct, fx_ret, rf_annual=0.0325)
+
+    # 원화 상장 자산(domestic_*)은 환율 무관 — 현지통화 수익률 그대로.
+    assert out["domestic_equity"].iloc[0] == pytest.approx(0.01)
+    assert out["domestic_bond"].iloc[1] == pytest.approx(0.01)
+    # USD 상장 자산은 (1+r_USD)*(1+r_FX)-1 로 결합.
+    expected_day1 = (1 + 0.02) * (1 + 0.03) - 1
+    expected_day2 = (1 + 0.02) * (1 - 0.01) - 1
+    assert out["global_equity"].iloc[0] == pytest.approx(expected_day1)
+    assert out["global_equity"].iloc[1] == pytest.approx(expected_day2)
+    assert out["alternatives"].iloc[0] == pytest.approx(expected_day1)
+    # cash는 시장데이터 무관 — rf_annual/252 상수.
+    assert out["cash"].tolist() == pytest.approx([0.0325 / 252, 0.0325 / 252])
+
+
 def test_var_engine_uses_real_data_by_default():
     """data_source 미지정 시 기본값 real — committed 캐시로 오프라인 동작, fx_applied=True."""
     state = {

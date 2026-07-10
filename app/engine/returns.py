@@ -147,6 +147,24 @@ def _extract_close(data: pd.DataFrame, ticker: str) -> pd.Series:
     return close
 
 
+def _apply_fx_conversion(pct: pd.DataFrame, fx_ret: pd.Series, rf_annual: float) -> pd.DataFrame:
+    """현지통화 수익률에 USD/KRW 변동을 복리 결합해 원화 환산 수익률로 만든다.
+
+    methodology_var_cvar_2026 §3(기준통화 및 환율 처리): r_KRW = (1+r_USD)*(1+r_FX) - 1.
+    USD_DENOMINATED 자산군만 환산하고, 원화 상장 자산은 그대로 둔다.
+    cash는 시장데이터가 없으므로 rf_annual/252 상수로 채운다(결정론적).
+    yfinance 호출과 분리된 순수 함수라 네트워크 없이 단위테스트할 수 있다.
+    """
+    returns = pd.DataFrame(index=pct.index)
+    for ac in REAL_ASSET_TICKERS:
+        if ac in USD_DENOMINATED:
+            returns[ac] = (1.0 + pct[ac]) * (1.0 + fx_ret) - 1.0
+        else:
+            returns[ac] = pct[ac]
+    returns["cash"] = rf_annual / 252.0
+    return returns[ASSET_CLASSES]
+
+
 def _fetch_real_returns(
     n: int = DEFAULT_N,
     as_of_date: str | None = None,
@@ -192,17 +210,8 @@ def _fetch_real_returns(
     prices = prices.sort_index().ffill().dropna()
 
     pct = prices.pct_change().dropna()  # 첫 행(변화율 계산 불가) 제거
-    fx_ret = pct["_fx"]
+    returns = _apply_fx_conversion(pct[list(REAL_ASSET_TICKERS)], pct["_fx"], rf_annual)
 
-    returns = pd.DataFrame(index=pct.index)
-    for ac in REAL_ASSET_TICKERS:
-        if ac in USD_DENOMINATED:
-            returns[ac] = (1.0 + pct[ac]) * (1.0 + fx_ret) - 1.0
-        else:
-            returns[ac] = pct[ac]
-    returns["cash"] = rf_annual / 252.0
-
-    returns = returns[ASSET_CLASSES]
     returns = returns[returns.index <= end]
     if len(returns) < n:
         raise ValueError(
