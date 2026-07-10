@@ -261,6 +261,23 @@ def test_real_cache_invalidated_on_param_mismatch(tmp_path, monkeypatch):
     assert calls == [5, 6]  # n이 달라졌으니 재수집
 
 
+def test_extract_close_handles_multiindex_columns():
+    """yf.download()가 (Close, ticker) MultiIndex 컬럼을 줄 때 정상 추출된다."""
+    idx = pd.bdate_range("2026-01-01", periods=3)
+    cols = pd.MultiIndex.from_product([["Close", "Open"], ["^KS11"]])
+    data = pd.DataFrame([[1.0, 1.1], [2.0, 2.1], [3.0, 3.1]], index=idx, columns=cols)
+    out = returns_mod._extract_close(data, "^KS11")
+    assert list(out) == [1.0, 2.0, 3.0]
+
+
+def test_extract_close_handles_flat_columns():
+    """yf.download()가 flat 컬럼(Close 단일 Series)을 줄 때도 KeyError 없이 추출된다."""
+    idx = pd.bdate_range("2026-01-01", periods=3)
+    data = pd.DataFrame({"Close": [1.0, 2.0, 3.0], "Open": [1.1, 2.1, 3.1]}, index=idx)
+    out = returns_mod._extract_close(data, "^KS11")
+    assert list(out) == [1.0, 2.0, 3.0]
+
+
 def test_var_engine_uses_real_data_by_default():
     """data_source 미지정 시 기본값 real — committed 캐시로 오프라인 동작, fx_applied=True."""
     state = {

@@ -134,6 +134,19 @@ REAL_CACHE_META_PATH = Path(__file__).resolve().parents[2] / "data" / "returns_r
 DEFAULT_RF_ANNUAL = 0.0325  # config.yaml의 rf_rate 기본값과 동일 — cash 자산군 수익률에 사용
 
 
+def _extract_close(data: pd.DataFrame, ticker: str) -> pd.Series:
+    """yf.download() 결과에서 종가 Series를 안전하게 뽑는다.
+
+    yfinance는 버전/호출 방식에 따라 단일 티커 조회에도 (Close, ticker) 형태의
+    MultiIndex 컬럼을 반환하거나, 단순 flat 컬럼(Close 하나)을 반환할 수 있다.
+    flat인데 무조건 data["Close"][ticker]로 인덱싱하면 KeyError가 난다.
+    """
+    close = data["Close"]
+    if isinstance(close, pd.DataFrame):
+        close = close[ticker]
+    return close
+
+
 def _fetch_real_returns(
     n: int = DEFAULT_N,
     as_of_date: str | None = None,
@@ -145,8 +158,9 @@ def _fetch_real_returns(
       원화 환산 총수익률로 만든다: r_KRW = (1+r_USD)*(1+r_fx) - 1.
     - domestic_* 는 KRW로 직접 상장돼 있어 환산이 필요 없다.
     - cash는 시장데이터가 없으므로 rf_annual/252 상수로 둔다(결정론적).
-    - 한국·미국 거래일이 서로 달라(공휴일 불일치) 전 종목 공통 거래일만
-      교집합으로 사용한다(dropna) — 완전한 6개국 캘린더 정합은 하지 않는다.
+    - 한국·미국 거래일이 서로 달라(공휴일 불일치) 직전 종가로 순방향 채움(ffill)한
+      뒤 그래도 남는 선행 결측치만 제거한다 — 단순 dropna는 양쪽 거래소 중 한
+      곳만 휴장해도 그 날 전체를 버려 연간 20~25거래일이 손실되기 때문이다.
     """
     import yfinance as yf  # 지연 import — 더미 경로(테스트 기본 경로)는 네트워크 의존성이 없어야 한다.
 
@@ -162,7 +176,7 @@ def _fetch_real_returns(
         )
         if data.empty:
             raise ValueError(f"실데이터 조회 실패(빈 응답): {ticker} ({ac})")
-        closes[ac] = data["Close"][ticker]
+        closes[ac] = _extract_close(data, ticker)
 
     fx_data = yf.download(
         FX_TICKER, start=start, end=end + pd.Timedelta(days=1),
@@ -172,8 +186,10 @@ def _fetch_real_returns(
         raise ValueError(f"환율 데이터 조회 실패(빈 응답): {FX_TICKER}")
 
     prices = pd.DataFrame(closes)
-    prices["_fx"] = fx_data["Close"][FX_TICKER]
-    prices = prices.sort_index().dropna()  # 전 종목·환율 공통 거래일만 사용
+    prices["_fx"] = _extract_close(fx_data, FX_TICKER)
+    # 한쪽 거래소만 휴장한 날은 직전 종가로 채워 보존하고, 그래도 못 채우는
+    # 선행 구간(상장 전 등)만 제거한다.
+    prices = prices.sort_index().ffill().dropna()
 
     pct = prices.pct_change().dropna()  # 첫 행(변화율 계산 불가) 제거
     fx_ret = pct["_fx"]
