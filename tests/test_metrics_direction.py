@@ -231,8 +231,8 @@ def test_load_real_returns_uses_committed_cache():
 
     R7 요구사항(현장 시연은 인터넷 없이도 동작해야 함)의 핵심 전제를 검증한다.
     """
-    df = load_real_returns(n=250, as_of_date="2026-07-03")
-    assert df.shape == (250, len(ASSET_CLASSES))
+    df = load_real_returns(n=1250, as_of_date="2026-07-03")
+    assert df.shape == (1250, len(ASSET_CLASSES))
     assert list(df.columns) == ASSET_CLASSES
     assert not df.isna().any().any()
 
@@ -312,13 +312,13 @@ def test_apply_fx_conversion_formula():
 def test_var_engine_uses_real_data_by_default():
     """data_source 미지정 시 기본값 real — committed 캐시로 오프라인 동작, fx_applied=True."""
     state = {
-        "run_config": {"as_of_date": "2026-07-03", "var_lookback_days": 250},
+        "run_config": {"as_of_date": "2026-07-03", "var_lookback_days": 1250},
         "portfolio": PORTFOLIO,
     }
     result = var_engine(state)
     meta = result["metrics"]["meta"]
     assert meta["fx_applied"] is True
-    assert meta["n_observations"] == 250
+    assert meta["n_observations"] == 1250
     assert meta["methodology_ref"] == "methodology_var_cvar_2026"
 
 
