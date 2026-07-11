@@ -93,6 +93,18 @@ def scenario_label(code: str | None) -> str:
     return SCENARIO_LABELS.get(code, code)
 
 
+def format_krw(val, suffix: str = "원") -> str:
+    if val is None:
+        return "-"
+    return f"{val:,.0f}{suffix}"
+
+
+def format_pct(val) -> str:
+    if val is None:
+        return "-"
+    return f"{val:.1%}"
+
+
 with st.sidebar:
     st.header("실행 옵션")
     force_judge_fail = st.number_input("judge 강제 실패 횟수", min_value=0, max_value=5, value=0)
@@ -139,7 +151,7 @@ else:
         f"""
         <div class="report-header">
         <h1>{report.get("title", "재현가능·설명가능 리스크 리포트")}</h1>
-        <p>기준일 {report.get("as_of_date") or "-"} · 포트폴리오 총액 {f"{total_value:,.0f}" if total_value else "-"}원</p>
+        <p>기준일 {report.get("as_of_date") or "-"} · 포트폴리오 총액 {format_krw(total_value)}</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -160,12 +172,12 @@ else:
             {
                 "기간": ["1일", "10일"],
                 "VaR": [
-                    f"{risk.get('var_1d_krw', 0):,.0f}원",
-                    f"{risk.get('var_10d_krw', 0):,.0f}원",
+                    format_krw(risk.get('var_1d_krw')),
+                    format_krw(risk.get('var_10d_krw')),
                 ],
                 "CVaR": [
-                    f"{risk.get('cvar_1d_krw', 0):,.0f}원",
-                    f"{risk.get('cvar_10d_krw', 0):,.0f}원",
+                    format_krw(risk.get('cvar_1d_krw')),
+                    format_krw(risk.get('cvar_10d_krw')),
                 ],
             }
         )
@@ -178,7 +190,7 @@ else:
         s1.metric("대표 시나리오", scenario_label(risk.get("stress_scenario")))
         s2.markdown(
             f"**손실액**<br><span style='color:#0b4fbf; font-size:1.3rem; font-weight:700;'>"
-            f"{risk.get('stress_loss_krw', 0):,.0f}원</span>",
+            f"{format_krw(risk.get('stress_loss_krw'))}</span>",
             unsafe_allow_html=True,
         )
         scenarios = risk.get("stress_scenarios") or []
@@ -189,8 +201,8 @@ else:
                         "시나리오": scenario_label(sc.get("scenario")),
                         "설명": sc.get("description"),
                         "근거": sc.get("reference"),
-                        "손실액(원)": f"{sc.get('loss_krw', 0):,.0f}",
-                        "손실률": f"{sc.get('loss_pct', 0):.1%}",
+                        "손실액(원)": format_krw(sc.get('loss_krw'), suffix=""),
+                        "손실률": format_pct(sc.get('loss_pct')),
                     }
                     for sc in scenarios
                 ]
