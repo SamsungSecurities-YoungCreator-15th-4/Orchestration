@@ -132,6 +132,11 @@ FX_TICKER = "KRW=X"  # USD/KRW (1달러당 원화)
 REAL_CACHE_PATH = Path(__file__).resolve().parents[2] / "data" / "returns_real.parquet"
 REAL_CACHE_META_PATH = Path(__file__).resolve().parents[2] / "data" / "returns_real.meta.json"
 DEFAULT_RF_ANNUAL = 0.0325  # config.yaml의 rf_rate 기본값과 동일 — cash 자산군 수익률에 사용
+# methodology_var_cvar_2026 §3에서 확정한 실데이터 관측기간(1,250거래일≈5년).
+# DEFAULT_N(더미 전용, 250)과 값이 다르므로 별도 상수로 둔다 — 하나로 합치면
+# var_lookback_days가 config에서 누락됐을 때 실데이터 경로가 조용히 250일로
+# 폴백해 문서와 어긋난다.
+DEFAULT_REAL_N = 1250
 
 
 def _extract_close(data: pd.DataFrame, ticker: str) -> pd.Series:
@@ -166,7 +171,7 @@ def _apply_fx_conversion(pct: pd.DataFrame, fx_ret: pd.Series, rf_annual: float)
 
 
 def _fetch_real_returns(
-    n: int = DEFAULT_N,
+    n: int = DEFAULT_REAL_N,
     as_of_date: str | None = None,
     rf_annual: float = DEFAULT_RF_ANNUAL,
 ) -> pd.DataFrame:
@@ -221,8 +226,34 @@ def _fetch_real_returns(
     return returns.tail(n)
 
 
+def _validate_cached_real_returns(df: pd.DataFrame, n: int, as_of_date: str | None) -> None:
+    """캐시에서 읽은 실데이터가 신뢰할 수 있는 모양인지 검증한다.
+
+    사이드카 meta는 '요청 파라미터'만 기록하므로, parquet 파일 내용 자체가
+    손상되거나(예: 다른 실행이 쓰다 만 파일) 다른 데이터로 바뀌어도 meta만
+    일치하면 그대로 반환되는 취약점이 있었다(리뷰 지적 — n=1250·as_of=기준일
+    meta에 1행·종료일 2000-01-01짜리 parquet를 넣어도 그대로 캐시 히트됨을
+    재현). 캐시 히트 직후 실제 내용을 검증해, 불일치 시 예외를 던져 재수집
+    경로(load_real_returns의 except 블록)를 타게 한다.
+    """
+    if len(df) != n:
+        raise ValueError(f"캐시 관측치 수 불일치: 기대 {n}건, 실제 {len(df)}건")
+    if list(df.columns) != ASSET_CLASSES:
+        raise ValueError(f"캐시 컬럼 불일치: {list(df.columns)}")
+    if df.isna().any().any():
+        raise ValueError("캐시에 결측치가 있습니다")
+    if not df.index.is_unique or not df.index.is_monotonic_increasing:
+        raise ValueError("캐시 인덱스가 정렬되지 않았거나 날짜가 중복됩니다")
+    expected_end = pd.Timestamp(as_of_date or DEFAULT_AS_OF)
+    if abs((df.index.max() - expected_end).days) > 10:
+        raise ValueError(
+            f"캐시 종료일이 기준일과 크게 어긋납니다: "
+            f"{df.index.max().date()} (기준일 {expected_end.date()})"
+        )
+
+
 def load_real_returns(
-    n: int = DEFAULT_N,
+    n: int = DEFAULT_REAL_N,
     as_of_date: str | None = None,
     cache_path: Path | str = REAL_CACHE_PATH,
     meta_path: Path | str = REAL_CACHE_META_PATH,
@@ -250,7 +281,9 @@ def load_real_returns(
         try:
             cached_request = json.loads(meta_path.read_text(encoding="utf-8"))
             if cached_request == request:
-                return pd.read_parquet(cache_path)[ASSET_CLASSES]
+                cached_df = pd.read_parquet(cache_path)[ASSET_CLASSES]
+                _validate_cached_real_returns(cached_df, n, as_of_date)
+                return cached_df
         except Exception as e:
             logger.warning("실데이터 캐시 읽기 실패, 재수집합니다: %s (%s)", cache_path, e)
 

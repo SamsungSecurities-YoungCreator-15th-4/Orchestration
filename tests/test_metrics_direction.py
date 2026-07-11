@@ -3,6 +3,7 @@
 초안 합격선: 정확한 수치값이 아니라 '방향(단조성)'과 '재현성'을 검증한다.
 """
 import functools
+import json
 import sys
 from datetime import date
 from pathlib import Path
@@ -226,15 +227,73 @@ def test_var_engine_defaults_lookback_when_explicitly_none(tmp_path, monkeypatch
 
 
 # --- 실데이터 경로 (yfinance + parquet 캐시) ---
-def test_load_real_returns_uses_committed_cache():
-    """레포에 커밋된 실데이터 캐시(data/returns_real.parquet)를 읽는다 — 네트워크 불요.
+# 실데이터 캐시(data/returns_real.parquet)는 Yahoo Finance 재배포 제약 때문에
+# git에 커밋하지 않는다(로컬 전용). 그래서 아래 테스트들은 레포에 실제 캐시
+# 파일이 있는지에 기대지 않고, _fetch_real_returns를 스텁으로 바꿔 각자
+# tmp_path에 자기만의 캐시를 만들어 검증한다 — CI·새 클론에서도 네트워크 없이
+# 항상 통과해야 한다.
+def _fake_fetch_real_returns(n, as_of_date, rf_annual):
+    idx = pd.bdate_range(end=pd.Timestamp(as_of_date), periods=n)
+    return pd.DataFrame({c: 0.001 for c in ASSET_CLASSES}, index=idx)[ASSET_CLASSES]
+
+
+def test_load_real_returns_reads_local_cache_offline(tmp_path, monkeypatch):
+    """로컬에 미리 캐시가 있으면(발표 전 1회 예열) 이후 네트워크 없이도 동작한다.
 
     R7 요구사항(현장 시연은 인터넷 없이도 동작해야 함)의 핵심 전제를 검증한다.
+    캐시를 git에 커밋하는 대신 "미리 한 번 실행해 로컬에 캐시를 남긴다"는
+    전략(VVIP_PB_Advisor와 동일 패턴)을 그대로 재현한다.
     """
-    df = load_real_returns(n=1250, as_of_date="2026-07-03")
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", _fake_fetch_real_returns)
+    cache_path = tmp_path / "real.parquet"
+    meta_path = tmp_path / "real.meta.json"
+
+    # 1회차 — "발표 전 예열": 네트워크(스텁) 호출로 캐시를 만든다.
+    load_real_returns(n=1250, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+
+    # 2회차 — "발표 당일": 재조회가 발생하면 즉시 실패하게 만들어 오프라인 보장을 증명한다.
+    def fail_if_called(*a, **kw):
+        raise AssertionError("캐시가 있는데도 재조회가 발생했다 — 오프라인 보장이 깨짐")
+
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", fail_if_called)
+    df = load_real_returns(n=1250, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
     assert df.shape == (1250, len(ASSET_CLASSES))
     assert list(df.columns) == ASSET_CLASSES
     assert not df.isna().any().any()
+
+
+def test_corrupted_cache_with_matching_meta_is_not_trusted(tmp_path, monkeypatch):
+    """[리뷰 반영] meta만 일치하면 parquet 내용을 검증 없이 반환하던 취약점.
+
+    n=1250·as_of=2026-07-03 meta에 실제로는 1행·종료일 2000-01-01짜리
+    손상된 parquet를 심어도, 예전 코드는 그대로 (1, 6)을 반환했다. 이제는
+    캐시 히트 직후 내용을 검증해 불일치 시 재수집해야 한다.
+    """
+    cache_path = tmp_path / "real.parquet"
+    meta_path = tmp_path / "real.meta.json"
+
+    request = {
+        "n": 1250,
+        "as_of_date": "2026-07-03",
+        "rf_annual": returns_mod.DEFAULT_RF_ANNUAL,
+        "tickers": returns_mod.REAL_ASSET_TICKERS,
+        "fx_ticker": returns_mod.FX_TICKER,
+    }
+    meta_path.write_text(json.dumps(request), encoding="utf-8")
+    bad_df = pd.DataFrame({c: [0.0] for c in ASSET_CLASSES}, index=pd.DatetimeIndex(["2000-01-01"]))
+    bad_df.to_parquet(cache_path)
+
+    calls = []
+
+    def fake_fetch(n, as_of_date, rf_annual):
+        calls.append(n)
+        return _fake_fetch_real_returns(n, as_of_date, rf_annual)
+
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", fake_fetch)
+
+    df = load_real_returns(n=1250, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+    assert calls == [1250]  # 손상된 캐시를 신뢰하지 않고 재수집했다
+    assert len(df) == 1250
 
 
 def test_real_cache_invalidated_on_param_mismatch(tmp_path, monkeypatch):
@@ -309,17 +368,71 @@ def test_apply_fx_conversion_formula():
     assert out["cash"].tolist() == pytest.approx([0.0325 / 252, 0.0325 / 252])
 
 
-def test_var_engine_uses_real_data_by_default():
-    """data_source 미지정 시 기본값 real — committed 캐시로 오프라인 동작, fx_applied=True."""
+def _load_real_returns_with_tmp_cache(tmp_path):
+    """load_real_returns의 cache_path/meta_path 기본값을 tmp 경로로 고정한 래퍼.
+
+    _load_returns_with_tmp_cache와 동일한 이유(기본값은 함수 정의 시점에
+    바인딩됨)로, var_engine이 참조하는 load_real_returns 자체를 교체해야
+    테스트가 로컬 실데이터 캐시를 건드리지 않는다.
+    """
+    return functools.partial(
+        returns_mod.load_real_returns, cache_path=tmp_path / "real.parquet", meta_path=tmp_path / "real.meta.json"
+    )
+
+
+def test_var_engine_uses_real_data_by_default(tmp_path, monkeypatch):
+    """data_source 미지정 시 기본값 real — fx_applied=True, 출처 메타(tickers 등) 포함."""
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", _fake_fetch_real_returns)
+    monkeypatch.setattr("app.nodes.var_engine.load_real_returns", _load_real_returns_with_tmp_cache(tmp_path))
     state = {
-        "run_config": {"as_of_date": "2026-07-03", "var_lookback_days": 1250},
+        "run_config": {"as_of_date": "2026-07-03", "var_lookback_days": 10},
         "portfolio": PORTFOLIO,
     }
     result = var_engine(state)
     meta = result["metrics"]["meta"]
     assert meta["fx_applied"] is True
-    assert meta["n_observations"] == 1250
+    assert meta["n_observations"] == 10
     assert meta["methodology_ref"] == "methodology_var_cvar_2026"
+    assert meta["data_source"] == "real"
+    assert meta["tickers"]["domestic_equity"] == "^KS11"
+    assert meta["fx_ticker"] == "KRW=X"
+
+
+def test_var_engine_real_path_defaults_to_1250_when_lookback_unset(tmp_path, monkeypatch):
+    """[리뷰 반영] var_lookback_days가 없으면 real 경로는 방법론 문서와 일치하는
+    1,250(returns.DEFAULT_REAL_N)을 써야 한다 — 더미 전용 DEFAULT_N(250)이 아니다."""
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", _fake_fetch_real_returns)
+    monkeypatch.setattr("app.nodes.var_engine.load_real_returns", _load_real_returns_with_tmp_cache(tmp_path))
+    state = {"run_config": {"as_of_date": "2026-07-03"}, "portfolio": PORTFOLIO}
+    result = var_engine(state)
+    assert result["metrics"]["meta"]["n_observations"] == 1250
+
+
+def test_var_engine_preserves_rf_rate_zero(monkeypatch):
+    """[리뷰 반영] rf_rate=0.0은 유효한 설정이며 DEFAULT_RF_ANNUAL(3.25%)로 덮어쓰지 않는다."""
+    captured = {}
+
+    def fake_load_real_returns(n, as_of_date, rf_annual):
+        captured["rf_annual"] = rf_annual
+        return _fake_fetch_real_returns(n, as_of_date, rf_annual)
+
+    monkeypatch.setattr("app.nodes.var_engine.load_real_returns", fake_load_real_returns)
+    state = {
+        "run_config": {"as_of_date": "2026-07-03", "var_lookback_days": 10, "rf_rate": 0.0},
+        "portfolio": PORTFOLIO,
+    }
+    var_engine(state)
+    assert captured["rf_annual"] == 0.0
+
+
+def test_var_engine_rejects_unsupported_data_source():
+    """[리뷰 반영] data_source 오타("reel" 등)를 조용히 dummy로 처리하지 않고 즉시 실패한다."""
+    state = {
+        "run_config": {"as_of_date": "2026-07-03", "data_source": "reel"},
+        "portfolio": PORTFOLIO,
+    }
+    with pytest.raises(ValueError):
+        var_engine(state)
 
 
 def test_var_engine_dummy_source_explicit_opt_in(tmp_path, monkeypatch):
@@ -332,4 +445,8 @@ def test_var_engine_dummy_source_explicit_opt_in(tmp_path, monkeypatch):
         "portfolio": PORTFOLIO,
     }
     result = var_engine(state)
-    assert result["metrics"]["meta"]["fx_applied"] is False
+    meta = result["metrics"]["meta"]
+    assert meta["fx_applied"] is False
+    assert meta["data_source"] == "dummy"
+    assert meta["tickers"] is None
+    assert meta["fx_ticker"] is None
