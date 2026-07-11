@@ -238,9 +238,13 @@ def _validate_cached_real_returns(df: pd.DataFrame, n: int, as_of_date: str | No
     """
     if len(df) != n:
         raise ValueError(f"캐시 관측치 수 불일치: 기대 {n}건, 실제 {len(df)}건")
-    if list(df.columns) != ASSET_CLASSES:
-        raise ValueError(f"캐시 컬럼 불일치: {list(df.columns)}")
-    if df.isna().any().any():
+    # 컬럼 체크는 load_real_returns가 df[ASSET_CLASSES]로 잘라내기 *전*의
+    # 원본 df에 대해 수행해야 한다. 이미 잘라낸 뒤에 검사하면 누락 컬럼은
+    # KeyError로 걸러지더라도, 예상 밖의 추가 컬럼(오염된 캐시)은 조용히
+    # 버려질 뿐 검증을 통과해버린다 — set 비교로 누락·초과를 모두 잡는다.
+    if set(df.columns) != set(ASSET_CLASSES):
+        raise ValueError(f"캐시 컬럼 불일치(누락 또는 예상 밖 컬럼): {sorted(df.columns)}")
+    if df[ASSET_CLASSES].isna().any().any():
         raise ValueError("캐시에 결측치가 있습니다")
     if not df.index.is_unique or not df.index.is_monotonic_increasing:
         raise ValueError("캐시 인덱스가 정렬되지 않았거나 날짜가 중복됩니다")
@@ -249,6 +253,20 @@ def _validate_cached_real_returns(df: pd.DataFrame, n: int, as_of_date: str | No
         raise ValueError(
             f"캐시 종료일이 기준일과 크게 어긋납니다: "
             f"{df.index.max().date()} (기준일 {expected_end.date()})"
+        )
+    # 시작일(전체 기간 길이)도 검증한다 — 관측치 수(n)는 맞아도 날짜 범위가
+    # 터무니없이 짧거나(예: n건이 몇 시간·며칠 안에 몰림) 길면(예: 수십 년)
+    # 손상된 캐시일 가능성이 높다. n 거래일의 수학적 최소 달력 기간은 n-1일
+    # (중간에 주말이 하나도 안 낀 경우, n≤5일 때만 가능)이므로 하한은 넉넉히
+    # n*0.8로 잡는다 — 대부분의 실제 데이터(거래일:달력일 ≈ 5:7 + 공휴일)는
+    # 이보다 훨씬 위에 있고, 그물은 "0일에 가깝게 뭉친" 손상 케이스만 잡으면 된다.
+    calendar_span_days = (df.index.max() - df.index.min()).days
+    min_expected_days = n * 0.8
+    max_expected_days = n * 2.3
+    if not (min_expected_days <= calendar_span_days <= max_expected_days):
+        raise ValueError(
+            f"캐시 기간 길이가 비정상입니다: {calendar_span_days}일 "
+            f"(관측치 {n}건 기준 기대 범위 {min_expected_days:.0f}~{max_expected_days:.0f}일)"
         )
 
 
@@ -281,9 +299,11 @@ def load_real_returns(
         try:
             cached_request = json.loads(meta_path.read_text(encoding="utf-8"))
             if cached_request == request:
-                cached_df = pd.read_parquet(cache_path)[ASSET_CLASSES]
-                _validate_cached_real_returns(cached_df, n, as_of_date)
-                return cached_df
+                # 컬럼 선택([ASSET_CLASSES]) 이전의 원본으로 검증해야 예상 밖의
+                # 추가 컬럼(오염된 캐시)도 잡아낼 수 있다.
+                raw_cached = pd.read_parquet(cache_path)
+                _validate_cached_real_returns(raw_cached, n, as_of_date)
+                return raw_cached[ASSET_CLASSES]
         except Exception as e:
             logger.warning("실데이터 캐시 읽기 실패, 재수집합니다: %s (%s)", cache_path, e)
 

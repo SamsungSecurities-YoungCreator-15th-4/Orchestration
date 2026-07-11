@@ -296,6 +296,74 @@ def test_corrupted_cache_with_matching_meta_is_not_trusted(tmp_path, monkeypatch
     assert len(df) == 1250
 
 
+def test_cache_with_extra_column_is_not_trusted(tmp_path, monkeypatch):
+    """[리뷰 반영] 행 수·컬럼이 일부 맞아도 예상 밖의 추가 컬럼이 섞여 있으면 재수집한다.
+
+    df[ASSET_CLASSES] 슬라이싱 *이후*에 컬럼을 검사하면, 슬라이싱 자체가
+    추가 컬럼을 조용히 버려서 검증이 항상 통과해버린다 — 슬라이싱 전
+    원본에서 검사해야 오염된 캐시를 잡을 수 있다.
+    """
+    cache_path = tmp_path / "real.parquet"
+    meta_path = tmp_path / "real.meta.json"
+    request = {
+        "n": 10,
+        "as_of_date": "2026-07-03",
+        "rf_annual": returns_mod.DEFAULT_RF_ANNUAL,
+        "tickers": returns_mod.REAL_ASSET_TICKERS,
+        "fx_ticker": returns_mod.FX_TICKER,
+    }
+    meta_path.write_text(json.dumps(request), encoding="utf-8")
+    idx = pd.bdate_range(end="2026-07-03", periods=10)
+    bad_df = pd.DataFrame({c: 0.001 for c in ASSET_CLASSES}, index=idx)
+    bad_df["_unexpected_extra_column"] = 0.5  # 오염 흔적 — 정상 캐시엔 없어야 함
+    bad_df.to_parquet(cache_path)
+
+    calls = []
+
+    def fake_fetch(n, as_of_date, rf_annual):
+        calls.append(n)
+        return _fake_fetch_real_returns(n, as_of_date, rf_annual)
+
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", fake_fetch)
+
+    df = load_real_returns(n=10, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+    assert calls == [10]  # 오염된 캐시를 신뢰하지 않고 재수집했다
+    assert list(df.columns) == ASSET_CLASSES
+
+
+def test_cache_with_abnormal_span_is_not_trusted(tmp_path, monkeypatch):
+    """[리뷰 반영] 관측치 수(n)는 맞아도 실제 날짜 범위가 비정상으로 짧으면 재수집한다.
+
+    n=1250개의 타임스탬프를 하루도 안 되는 구간(분 단위)에 몰아넣으면
+    행 수·컬럼·결측치·정렬 체크는 전부 통과하지만, 실제 5년 관측이라는
+    전제와는 완전히 어긋난다 — 시작일 기반 기간 검증이 필요한 이유.
+    """
+    cache_path = tmp_path / "real.parquet"
+    meta_path = tmp_path / "real.meta.json"
+    request = {
+        "n": 1250,
+        "as_of_date": "2026-07-03",
+        "rf_annual": returns_mod.DEFAULT_RF_ANNUAL,
+        "tickers": returns_mod.REAL_ASSET_TICKERS,
+        "fx_ticker": returns_mod.FX_TICKER,
+    }
+    meta_path.write_text(json.dumps(request), encoding="utf-8")
+    idx = pd.date_range(end="2026-07-03", periods=1250, freq="min")
+    bad_df = pd.DataFrame({c: 0.001 for c in ASSET_CLASSES}, index=idx)
+    bad_df.to_parquet(cache_path)
+
+    calls = []
+
+    def fake_fetch(n, as_of_date, rf_annual):
+        calls.append(n)
+        return _fake_fetch_real_returns(n, as_of_date, rf_annual)
+
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", fake_fetch)
+
+    load_real_returns(n=1250, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+    assert calls == [1250]  # 기간이 비정상적으로 짧은 캐시를 신뢰하지 않고 재수집했다
+
+
 def test_real_cache_invalidated_on_param_mismatch(tmp_path, monkeypatch):
     """캐시 meta와 요청 파라미터가 다르면 재수집 경로를 탄다.
 
