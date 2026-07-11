@@ -17,7 +17,10 @@ from app.engine.metrics import (
     compute_metrics,
     historical_cvar,
     historical_var,
+    lag1_autocorrelation,
     portfolio_returns,
+    tail_contribution,
+    var_backtest,
 )
 from app.engine import returns as returns_mod
 from app.engine.returns import _generate_dummy_returns, load_returns
@@ -210,3 +213,103 @@ def test_var_engine_defaults_lookback_when_explicitly_none(tmp_path, monkeypatch
     }
     result = var_engine(state)
     assert result["metrics"]["meta"]["n_observations"] == 250
+
+
+# --- 자산군 기여도 드릴다운 (R6 "드릴다운" 항목) ---
+def test_tail_contribution_sums_to_cvar_krw():
+    """자산군별 꼬리 기여도(KRW)의 합은 정확히 포트폴리오 1일 CVaR(KRW)과 같다.
+
+    가중합의 평균은 평균의 가중합이므로 근사가 아니라 수학적으로 정확히
+    맞아떨어져야 한다(반올림 오차 수준만 허용).
+    """
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    contrib = tail_contribution(df, PORTFOLIO, confidence=0.99)
+    m = compute_metrics(df, PORTFOLIO, confidence=0.99, horizons=[1, 10])
+    assert sum(contrib.values()) == pytest.approx(m["horizons"]["1d"]["cvar_krw"], abs=1.0)
+
+
+def test_tail_contribution_direction_high_vol_asset_contributes_more():
+    """변동성이 큰 자산군일수록(동일 비중이면) 꼬리 손실 기여도가 커야 한다."""
+    idx = pd.bdate_range(end="2026-07-03", periods=250)
+    df = pd.DataFrame(
+        {
+            "domestic_equity": _wave_returns(scale=0.02),  # 고변동
+            "global_equity": _wave_returns(scale=0.005),  # 저변동
+            "domestic_bond": _wave_returns(scale=0.005),
+            "global_bond": _wave_returns(scale=0.005),
+            "alternatives": _wave_returns(scale=0.005),
+            "cash": _wave_returns(scale=0.0001),
+        },
+        index=idx,
+    )
+    equal_portfolio = [
+        {"asset_class": c, "value_krw": 1_000_000_000} for c in df.columns
+    ]
+    contrib = tail_contribution(df, equal_portfolio, confidence=0.99)
+    assert contrib["domestic_equity"] > contrib["global_equity"]
+
+
+def test_drilldown_present_in_compute_metrics_output():
+    """compute_metrics 반환값에 drilldown(krw/pct)이 포함된다."""
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    m = compute_metrics(df, PORTFOLIO, confidence=0.99, horizons=[1, 10])
+    assert set(m["drilldown"]["tail_contribution_krw"]) == set(df.columns)
+    assert set(m["drilldown"]["tail_contribution_pct"]) == set(df.columns)
+
+
+# --- VaR 백테스트(표본 내 위반율 점검) ---
+def test_var_backtest_violation_rate_near_expected():
+    """위반율이 이론적 기대치(1-confidence) 근처에 있어야 한다(표본 내 점검)."""
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    port_ret = portfolio_returns(df, PORTFOLIO)
+    var_1d = historical_var(port_ret, 0.99)
+    bt = var_backtest(port_ret, var_1d, confidence=0.99)
+    assert bt["n_observations"] == 250
+    assert bt["expected_rate"] == pytest.approx(0.01)
+    # 표본 내 정의상 위반율은 기대치에서 크게 벗어나지 않아야 한다(1~2건 오차 허용).
+    assert abs(bt["violation_rate"] - bt["expected_rate"]) < 0.02
+
+
+def test_var_backtest_zero_violations_when_var_is_max_loss():
+    """VaR을 표본 최대 손실보다 크게 잡으면 위반이 0건이어야 한다."""
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    port_ret = portfolio_returns(df, PORTFOLIO)
+    huge_var = float(-port_ret.min()) + 1.0  # 표본 내 어떤 손실보다도 큰 VaR
+    bt = var_backtest(port_ret, huge_var, confidence=0.99)
+    assert bt["violations"] == 0
+    assert bt["violation_rate"] == 0.0
+
+
+def test_backtest_present_in_compute_metrics_output():
+    """compute_metrics 반환값에 backtest가 포함되고 note로 in-sample 한계를 명시한다."""
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    m = compute_metrics(df, PORTFOLIO, confidence=0.99, horizons=[1, 10])
+    assert "violation_rate" in m["backtest"]
+    assert "in-sample" in m["backtest"]["note"] or "표본 내" in m["backtest"]["note"]
+
+
+# --- 자기상관 정량화 ---
+def test_lag1_autocorrelation_bounded():
+    """자기상관계수는 항상 [-1, 1] 범위 안에 있어야 한다."""
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    port_ret = portfolio_returns(df, PORTFOLIO)
+    corr = lag1_autocorrelation(port_ret)
+    assert -1.0 <= corr <= 1.0
+
+
+def test_lag1_autocorrelation_detects_trend():
+    """단조 추세(강한 자기상관) 데이터는 상관계수가 뚜렷하게 양수여야 한다."""
+    trending = np.arange(100, dtype=float) * 0.001
+    assert lag1_autocorrelation(trending) > 0.9
+
+
+def test_lag1_autocorrelation_short_series_returns_zero():
+    """관측치가 너무 적으면(3개 미만) 0.0을 방어적으로 반환한다."""
+    assert lag1_autocorrelation(np.array([0.01, 0.02])) == 0.0
+
+
+def test_autocorrelation_present_in_compute_metrics_meta():
+    """compute_metrics의 meta에 autocorrelation_lag1이 포함된다."""
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    m = compute_metrics(df, PORTFOLIO, confidence=0.99, horizons=[1, 10])
+    assert -1.0 <= m["meta"]["autocorrelation_lag1"] <= 1.0
