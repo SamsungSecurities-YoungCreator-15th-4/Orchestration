@@ -246,3 +246,14 @@ def test_assemble_report_warns_when_judge_failed_or_citations_missing(monkeypatc
 def test_no_force_fail_env_leaked(monkeypatch):
     monkeypatch.delenv("RISK_FORCE_JUDGE_FAIL", raising=False)
     assert os.environ.get("RISK_FORCE_JUDGE_FAIL") is None
+
+
+def test_assemble_report_is_deterministic_for_same_state():
+    """같은 State를 반복 실행해도 완전히 동일한 리포트가 나와야 한다(재현성 원칙)."""
+    judged = judge_eval(BASE_STATE)
+    state = {**BASE_STATE, **judged}
+
+    report_first = assemble_report(state)["report"]
+    report_second = assemble_report(state)["report"]
+
+    assert report_first == report_second
