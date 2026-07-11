@@ -77,7 +77,10 @@ def tail_contribution(
     contributions: dict[str, float] = {}
     for c in returns_df.columns:
         w = weights.get(c, 0.0)
-        avg_asset_return = float(returns_df.loc[tail_mask, c].mean())
+        if w == 0.0:
+            contributions[c] = 0.0
+            continue
+        avg_asset_return = float(returns_df[c].to_numpy()[tail_mask].mean())
         contributions[c] = round(-avg_asset_return * w * total_value, 2)
     return contributions
 
@@ -123,7 +126,9 @@ def lag1_autocorrelation(port_ret: np.ndarray) -> float:
     0에 가까울수록 √t 스케일링의 시계열 독립성 가정이 잘 맞는다는 뜻이다.
     """
     port_ret = np.asarray(port_ret, dtype=float)
-    if len(port_ret) < 3:
+    if len(port_ret) < 3 or np.all(port_ret == port_ret[0]):
+        # 표준편차가 0(전 구간 수익률이 동일 — 예: 현금 전용 포트폴리오)이면
+        # np.corrcoef가 0으로 나누어 RuntimeWarning과 함께 nan을 반환한다.
         return 0.0
     corr = np.corrcoef(port_ret[:-1], port_ret[1:])[0, 1]
     return 0.0 if np.isnan(corr) else round(float(corr), 6)

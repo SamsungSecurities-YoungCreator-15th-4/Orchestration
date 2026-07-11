@@ -308,6 +308,20 @@ def test_lag1_autocorrelation_short_series_returns_zero():
     assert lag1_autocorrelation(np.array([0.01, 0.02])) == 0.0
 
 
+def test_lag1_autocorrelation_constant_series_returns_zero_without_warning():
+    """[리뷰 반영] 전 구간 수익률이 동일하면(표준편차 0) 경고 없이 0.0을 반환한다.
+
+    np.corrcoef는 표준편차가 0이면 0으로 나누어 RuntimeWarning과 함께 nan을
+    반환한다 — 사전에 방어해야 한다(예: 현금 전용 포트폴리오).
+    """
+    import warnings
+
+    constant = np.full(10, 0.0001)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # 경고가 나면 예외로 승격시켜 실패시킨다
+        assert lag1_autocorrelation(constant) == 0.0
+
+
 def test_autocorrelation_present_in_compute_metrics_meta():
     """compute_metrics의 meta에 autocorrelation_lag1이 포함된다."""
     df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
