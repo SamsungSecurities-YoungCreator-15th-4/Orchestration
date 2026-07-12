@@ -25,7 +25,7 @@ from app.engine.metrics import (
 )
 from app.engine import returns as returns_mod
 from app.engine.returns import ASSET_CLASSES, _generate_dummy_returns, load_real_returns, load_returns
-from app.engine.stress import run_all_stress
+from app.engine.stress import run_all_stress, SCENARIO_A_HIGH_RATE, SCENARIO_B_STRONG_USD
 from app.nodes.var_engine import var_engine
 
 # 6자산군 더미 포트폴리오(총 50억) — load_inputs.py와 동일 구조.
@@ -668,3 +668,20 @@ def test_var_engine_dummy_source_explicit_opt_in(tmp_path, monkeypatch):
     assert meta["data_source"] == "dummy"
     assert meta["tickers"] is None
     assert meta["fx_ticker"] is None
+
+
+def test_stress_shock_contract_locked():
+    """[리뷰 반영] 충격값·포폴 결과는 문서/RAG 확정 계약값이므로 정확히 고정한다."""
+    assert SCENARIO_A_HIGH_RATE["shocks"] == {
+        "domestic_equity": -0.25, "global_equity": -0.25, "domestic_bond": -0.15,
+        "global_bond": -0.12, "alternatives": -0.10, "cash": 0.0,
+    }
+    assert SCENARIO_B_STRONG_USD["shocks"] == {
+        "domestic_equity": -0.12, "global_equity": -0.03, "domestic_bond": -0.05,
+        "global_bond": -0.01, "alternatives": -0.02, "cash": 0.0,
+    }
+    res = run_all_stress(PORTFOLIO)
+    assert res["A_high_rate"]["loss_pct"] == 0.178
+    assert res["A_high_rate"]["loss_krw"] == 890_000_000.0
+    assert res["B_strong_usd"]["loss_pct"] == 0.052
+    assert res["B_strong_usd"]["loss_krw"] == 260_000_000.0

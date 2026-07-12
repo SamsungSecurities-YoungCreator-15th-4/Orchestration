@@ -4,21 +4,22 @@
 """
 
 # 스트레스 시나리오는 사전 정의·문서화되며, 실행 시점에 임의로 생성되지 않는다.
-# 충격 크기는 역사적 사례를 참조한 초안 제안값이며(reference 병기), 최종 강도는
-# 회의에서 확정한다. 자산군별 변환 규칙(shocks)은 결정론적으로 고정된다.
+# 충격 크기는 역사적 국면(2022 등)으로 방향·크기를 검증한 스타일라이즈드 대표 낙폭이며
+# (reference 병기), 특정 사건의 정밀 재현이 아니다. 값 변경은 회의에서 확정한다.
+# 자산군별 변환 규칙(shocks)은 결정론적으로 고정된다.
 
 # 시나리오 A — 고금리 충격: 정책금리 급등 국면.
 # 금리 상승 → 채권 가격 직접 하락(듀레이션 효과) + 주식·대체 할인율 상승 충격.
 SCENARIO_A_HIGH_RATE = {
     "name": "A_high_rate",
     "description": "정책금리 +250bp 급등 — 채권 가격 직접 하락 + 주식·대체 할인율 상승 충격",
-    "reference": "2022년 고금리 국면(한·미 정책금리 급등) 참조 — 초안 제안값",
+    "reference": "2022 고금리 국면(한·미 정책금리 급등) 참조 — 스타일라이즈드(방향·크기 정합)",
     "shocks": {
-        "domestic_equity": -0.12,
-        "global_equity": -0.08,
-        "domestic_bond": -0.06,
-        "global_bond": -0.04,
-        "alternatives": -0.07,
+        "domestic_equity": -0.25,
+        "global_equity": -0.25,
+        "domestic_bond": -0.15,
+        "global_bond": -0.12,
+        "alternatives": -0.10,
         "cash": 0.0,
     },
 }
@@ -28,14 +29,14 @@ SCENARIO_A_HIGH_RATE = {
 # 원화자산은 자본유출·위험회피 충격을 직접 받는다.
 SCENARIO_B_STRONG_USD = {
     "name": "B_strong_usd",
-    "description": "원/달러 +10% 급등 — 미헤지 외화자산 FX 환산이익이 위험회피 손실을 일부 상쇄, 원화자산은 위험회피 직격",
-    "reference": "2022년 강달러 국면(원/달러 1,440원대) 참조 — 초안 제안값",
+    "description": "원/달러 +15% 급등 — 미헤지 외화자산 FX 환산이익이 위험회피 손실을 일부 상쇄, 원화자산은 위험회피 직격",
+    "reference": "2022 강달러 국면(원/달러 1,440원대) 참조 — 스타일라이즈드(방향·크기 정합)",
     "shocks": {
-        "domestic_equity": -0.09,
+        "domestic_equity": -0.12,
         "global_equity": -0.03,
-        "domestic_bond": -0.03,
+        "domestic_bond": -0.05,
         "global_bond": -0.01,
-        "alternatives": -0.05,
+        "alternatives": -0.02,
         "cash": 0.0,
     },
 }
