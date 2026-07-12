@@ -68,7 +68,7 @@ START
   → rag_cite  ◄──────────────────┐  (분기③ judge 재작성 루프)
   → judge_eval ───────────────────┘
         │  route_after_judge:
-        │   judge.passed 또는 judge_retries >= MAX_JUDGE_RETRIES(=3) → assemble_report
+        │   judge.passed 또는 judge_retries >= MAX_JUDGE_RETRIES(=2) → assemble_report
         │   그 외 → rag_cite 재작성
         ▼
   → assemble_report
@@ -77,6 +77,8 @@ START
 
 - 컴파일: `g.compile(checkpointer=MemorySaver(), interrupt_before=["approval_gate"])`
 - 노드는 순수 함수로, 바꾼 키만 반환한다(레포 구조의 `nodes/` 규약과 동일).
+- judge가 규칙 기반이므로 실패 사유가 구조적이며, 재시도 증가는 해결 확률을
+  높이지 않는다. 2회 초과 시 수동검토로 전환한다.
 
 ## RiskState 데이터 계약 키
 
@@ -100,7 +102,7 @@ START
 | `explanations` | `list` | TBD |
 | `citations` | `list` | TBD |
 | `judge` | `dict` | `route_after_judge`가 `judge.passed`를 읽어 분기③ 판단 |
-| `judge_retries` | `int` | `route_after_judge`가 읽어 분기③ 판단 (MAX=3) |
+| `judge_retries` | `int` | `route_after_judge`가 읽어 분기③ 판단 (MAX=2) |
 | `judge_feedback` | `str` | TBD |
 | `report` | `dict` | TBD |
 

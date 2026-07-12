@@ -5,6 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.graph import MAX_JUDGE_RETRIES, route_after_judge
 from app.nodes.assemble_report import assemble_report
 from app.nodes.judge_eval import judge_eval
 
@@ -231,7 +232,7 @@ def test_assemble_report_warns_when_judge_failed_or_citations_missing(monkeypatc
         **BASE_STATE,
         "citations": [],
         "judge": {"passed": False, "manual_review_flags": ["수동 확인"]},
-        "judge_retries": 3,
+        "judge_retries": MAX_JUDGE_RETRIES,
     }
 
     report = assemble_report(state)["report"]
@@ -241,6 +242,26 @@ def test_assemble_report_warns_when_judge_failed_or_citations_missing(monkeypatc
     assert "judge 품질 점검이 통과되지 않았습니다." in report["warnings"]
     assert "검증 통과 인용이 없어 사람 검토가 필요합니다." in report["warnings"]
     assert "수동 확인" in report["warnings"]
+
+
+def test_judge_retry_limit_routes_to_report_with_manual_review_warning():
+    failed_state = {
+        **BASE_STATE,
+        "judge": {"passed": False, "manual_review_flags": []},
+    }
+
+    assert MAX_JUDGE_RETRIES == 2
+    assert route_after_judge({**failed_state, "judge_retries": 1}) == "rag_cite"
+    exhausted_state = {
+        **failed_state,
+        "judge_retries": MAX_JUDGE_RETRIES,
+    }
+    assert route_after_judge(exhausted_state) == "assemble_report"
+
+    report = assemble_report(exhausted_state)["report"]
+    assert report["governance"]["judge_retries"] == MAX_JUDGE_RETRIES
+    assert report["governance"]["manual_review_required"] is True
+    assert "judge 품질 점검이 통과되지 않았습니다." in report["warnings"]
 
 
 def test_no_force_fail_env_leaked(monkeypatch):
