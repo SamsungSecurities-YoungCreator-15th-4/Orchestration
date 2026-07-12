@@ -41,6 +41,7 @@ class IPSProfile(BaseModel):
 
 class RiskState(TypedDict, total=False):
     run_config: dict
+    demo_options: dict
     trace_id: str
     raw_input: str
     portfolio: list

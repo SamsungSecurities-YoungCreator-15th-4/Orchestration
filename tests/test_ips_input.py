@@ -64,6 +64,32 @@ def test_extract_node_stores_public_ips_and_internal_liquidity_amount(monkeypatc
     assert result["liquidity_required_krw"] == 2_000_000_000
 
 
+def test_extract_node_offline_mode_does_not_require_llm(monkeypatch):
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("offline mode must not call the LLM")
+
+    monkeypatch.setattr("app.nodes.extract_ips.extract_ips_profile", fail_if_called)
+    result = extract_ips(
+        {"raw_input": "고객 상담", "demo_options": {"offline": True}}
+    )
+
+    assert result["ips"]["Job"] == "자영업자"
+    assert result["liquidity_required_krw"] == 500_000_000
+
+
+def test_extract_conflict_demo_option_is_isolated_in_state(monkeypatch):
+    monkeypatch.delenv("RISK_FORCE_CONFLICT", raising=False)
+    result = extract_ips(
+        {
+            "raw_input": "고객 상담",
+            "demo_options": {"force_conflict": True},
+        },
+        chain=FakeStructuredChain(),
+    )
+
+    assert result["liquidity_required_krw"] == 2_000_000_000
+
+
 def test_new_ips_liquidity_amount_uses_existing_30_percent_conflict_rule():
     portfolio = portfolio_from_percentages(
         {asset_class: value for (asset_class, _), value in zip(ASSET_DEFINITIONS, [25, 20, 25, 15, 10, 5])}
@@ -94,6 +120,21 @@ def test_portfolio_percentages_convert_to_50_eok_contract():
 def test_portfolio_percentages_must_sum_to_100():
     percentages = {asset_class: 10.0 for asset_class, _ in ASSET_DEFINITIONS}
     with pytest.raises(ValueError, match="100%"):
+        portfolio_from_percentages(percentages)
+
+
+@pytest.mark.parametrize("invalid", [float("nan"), float("inf"), float("-inf")])
+def test_portfolio_percentages_reject_non_finite_values(invalid):
+    percentages = {
+        asset_class: value
+        for (asset_class, _), value in zip(
+            ASSET_DEFINITIONS,
+            [25, 20, 25, 15, 10, 5],
+        )
+    }
+    percentages["cash"] = invalid
+
+    with pytest.raises(ValueError, match="유효한 숫자"):
         portfolio_from_percentages(percentages)
 
 
@@ -128,3 +169,18 @@ def test_load_inputs_does_not_replace_explicit_empty_consultation(monkeypatch, t
     result = load_inputs({"raw_input": ""})
 
     assert result["raw_input"] == ""
+
+
+def test_load_inputs_offline_mode_selects_dummy_data(monkeypatch, tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        'seed: 42\nas_of_date: "2026-07-03"\ndata_source: real\n',
+        encoding="utf-8",
+    )
+    import app.nodes.load_inputs as load_inputs_module
+
+    monkeypatch.setattr(load_inputs_module, "CONFIG_PATH", config)
+    result = load_inputs({"demo_options": {"offline": True}})
+
+    assert result["run_config"]["data_source"] == "dummy"
+    assert result["market_data_ref"]["source"] == "dummy"

@@ -1,5 +1,4 @@
 """자연어 IPS·포트폴리오 입력부터 PB 승인·리스크 결과까지 제공하는 Streamlit UI."""
-import os
 import sys
 import uuid
 from pathlib import Path
@@ -175,13 +174,18 @@ if not report:
     if prepare_clicked:
         try:
             portfolio = portfolio_from_percentages(percentages)
-            os.environ["RISK_FORCE_JUDGE_FAIL"] = str(force_judge_fail)
-            os.environ["RISK_FORCE_CONFLICT"] = "1" if with_conflict else "0"
             graph = build_graph()
             config = {"configurable": {"thread_id": str(uuid.uuid4())}}
             with st.spinner("gpt-4o로 IPS를 추출하고 충돌을 검사하는 중..."):
                 for _ in graph.stream(
-                    {"raw_input": raw_input, "portfolio": portfolio},
+                    {
+                        "raw_input": raw_input,
+                        "portfolio": portfolio,
+                        "demo_options": {
+                            "force_judge_fail": int(force_judge_fail),
+                            "force_conflict": with_conflict,
+                        },
+                    },
                     config,
                     stream_mode="updates",
                 ):
@@ -200,12 +204,16 @@ if not report:
     if pending:
         section_title("3. 추출 IPS 및 PB 승인")
         st.json(pending.get("ips") or {})
-        st.dataframe(pending.get("portfolio") or [], width="stretch", hide_index=True)
+        st.dataframe(
+            pending.get("portfolio") or [],
+            use_container_width=True,
+            hide_index=True,
+        )
 
         conflicts = pending.get("conflicts") or []
         if conflicts:
             st.error("IPS 상충 조건이 발견되어 계산 단계로 진행할 수 없습니다.")
-            st.dataframe(conflicts, width="stretch", hide_index=True)
+            st.dataframe(conflicts, use_container_width=True, hide_index=True)
         else:
             with st.form("pb_approval"):
                 ips = pending.get("ips") or {}
@@ -222,29 +230,32 @@ if not report:
                 if not approver.strip():
                     st.error("PB 승인자를 입력해야 합니다.")
                 else:
-                    graph = st.session_state["pending_graph"]
-                    config = st.session_state["pending_config"]
-                    reviewed_ips = IPSProfile.model_validate(
-                        {**ips, "Unique": unique_text}
-                    ).model_dump()
-                    graph.update_state(
-                        config,
-                        {
-                            "ips": reviewed_ips,
-                            "approval": {
-                                "status": "approved",
-                                "approver": approver.strip(),
-                                "note": note.strip(),
+                    try:
+                        graph = st.session_state["pending_graph"]
+                        config = st.session_state["pending_config"]
+                        reviewed_ips = IPSProfile.model_validate(
+                            {**ips, "Unique": unique_text}
+                        ).model_dump()
+                        graph.update_state(
+                            config,
+                            {
+                                "ips": reviewed_ips,
+                                "approval": {
+                                    "status": "approved",
+                                    "approver": approver.strip(),
+                                    "note": note.strip(),
+                                },
                             },
-                        },
-                    )
-                    with st.spinner("승인된 포트폴리오의 리스크를 분석하는 중..."):
-                        for _ in graph.stream(None, config, stream_mode="updates"):
-                            pass
-                    st.session_state["report"] = graph.get_state(config).values.get("report")
-                    for key in ("pending_graph", "pending_config", "pending_state"):
-                        st.session_state.pop(key, None)
-                    st.rerun()
+                        )
+                        with st.spinner("승인된 포트폴리오의 리스크를 분석하는 중..."):
+                            for _ in graph.stream(None, config, stream_mode="updates"):
+                                pass
+                        st.session_state["report"] = graph.get_state(config).values.get("report")
+                        for key in ("pending_graph", "pending_config", "pending_state"):
+                            st.session_state.pop(key, None)
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"PB 승인 및 리스크 분석 중 오류가 발생했습니다: {exc}")
 
 report = st.session_state.get("report")
 

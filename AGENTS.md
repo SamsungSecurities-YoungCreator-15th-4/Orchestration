@@ -88,6 +88,7 @@ START
 | 키 | 타입 | 생산/소비 노드 (graph.py 근거) |
 | --- | --- | --- |
 | `run_config` | `dict` | TBD (노드 구현 범위) |
+| `demo_options` | `dict` | UI/CLI의 세션별 충돌·judge·오프라인 시연 옵션 |
 | `trace_id` | `str` | TBD |
 | `raw_input` | `str` | TBD |
 | `portfolio` | `list` | TBD |

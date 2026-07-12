@@ -7,7 +7,6 @@
 """
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -38,19 +37,25 @@ def main() -> None:
                         help="judge를 N회 강제 실패시켜 재작성 루프 시연")
     parser.add_argument("--with-conflict", action="store_true",
                         help="유동성 요구를 과대 설정해 충돌 분기 시연")
+    parser.add_argument("--offline", action="store_true",
+                        help="외부 API 없이 결정론 IPS·더미 시장데이터로 실행")
     args = parser.parse_args()
-
-    os.environ["RISK_FORCE_JUDGE_FAIL"] = str(args.force_judge_fail)
-    os.environ["RISK_FORCE_CONFLICT"] = "1" if args.with_conflict else "0"
 
     from app.graph import build_graph
 
     graph = build_graph()
     config = {"configurable": {"thread_id": THREAD_ID}}
     order: list[str] = []
+    initial_state = {
+        "demo_options": {
+            "force_judge_fail": args.force_judge_fail,
+            "force_conflict": args.with_conflict,
+            "offline": args.offline,
+        }
+    }
 
     _print_header("1) 그래프 실행 시작")
-    _stream_and_collect(graph, {}, config, order)
+    _stream_and_collect(graph, initial_state, config, order)
 
     snapshot = graph.get_state(config)
     if snapshot.next and "approval_gate" in snapshot.next:

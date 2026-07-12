@@ -103,6 +103,18 @@ def test_judge_force_fail_env_still_demonstrates_loop(monkeypatch):
     assert second["judge"]["passed"] is True
 
 
+def test_judge_force_fail_isolated_in_state(monkeypatch):
+    monkeypatch.delenv("RISK_FORCE_JUDGE_FAIL", raising=False)
+    state = {**BASE_STATE, "demo_options": {"force_judge_fail": 1}}
+
+    first = judge_eval(state)
+    second = judge_eval({**state, "judge_retries": 1})
+
+    assert first["judge"]["passed"] is False
+    assert "[강제실패 1/1]" in first["judge_feedback"]
+    assert second["judge"]["passed"] is True
+
+
 def test_judge_empty_citations_passes_with_manual_review_flag(monkeypatch):
     monkeypatch.delenv("RISK_FORCE_JUDGE_FAIL", raising=False)
     out = judge_eval({**BASE_STATE, "citations": []})
