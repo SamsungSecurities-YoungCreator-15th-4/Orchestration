@@ -126,11 +126,17 @@ def lag1_autocorrelation(port_ret: np.ndarray) -> float:
     0에 가까울수록 √t 스케일링의 시계열 독립성 가정이 잘 맞는다는 뜻이다.
     """
     port_ret = np.asarray(port_ret, dtype=float)
-    if len(port_ret) < 3 or np.all(port_ret == port_ret[0]):
-        # 표준편차가 0(전 구간 수익률이 동일 — 예: 현금 전용 포트폴리오)이면
-        # np.corrcoef가 0으로 나누어 RuntimeWarning과 함께 nan을 반환한다.
+    if len(port_ret) < 3:
         return 0.0
-    corr = np.corrcoef(port_ret[:-1], port_ret[1:])[0, 1]
+    lagged_left = port_ret[:-1]
+    lagged_right = port_ret[1:]
+    if (
+        np.all(lagged_left == lagged_left[0])
+        or np.all(lagged_right == lagged_right[0])
+    ):
+        # lagged 벡터 중 하나라도 표준편차가 0이면 corrcoef가 0으로 나눈다.
+        return 0.0
+    corr = np.corrcoef(lagged_left, lagged_right)[0, 1]
     return 0.0 if np.isnan(corr) else round(float(corr), 6)
 
 
@@ -143,6 +149,9 @@ def compute_metrics(
     data_period_meta: dict | None = None,
     fx_applied: bool = False,
     methodology_ref: str | None = None,
+    data_source: str | None = None,
+    tickers: dict | None = None,
+    fx_ticker: str | None = None,
 ) -> dict:
     """포트폴리오 리스크 지표 일괄 계산.
 
@@ -189,6 +198,10 @@ def compute_metrics(
         c: round(v / cvar_1d_krw, 6) if cvar_1d_krw else 0.0
         for c, v in tail_contribution_krw.items()
     }
+    drilldown = {
+        "tail_contribution_krw": tail_contribution_krw,
+        "tail_contribution_pct": tail_contribution_pct,
+    }
     backtest = var_backtest(port_ret, var_1d, confidence)
     autocorrelation_lag1 = lag1_autocorrelation(port_ret)
 
@@ -205,11 +218,14 @@ def compute_metrics(
             "fx_applied": fx_applied,
             "data_period": data_period_meta,
             "methodology_ref": methodology_ref,
+            "data_source": data_source,
+            "tickers": tickers,
+            "fx_ticker": fx_ticker,
         },
         "results": {
             "per_horizon": per_horizon,
             "stress": stress,
-            "tail_contribution_krw": tail_contribution_krw,
+            "drilldown": drilldown,
             "backtest": backtest,
             "autocorrelation_lag1": autocorrelation_lag1,
         },
@@ -219,10 +235,7 @@ def compute_metrics(
         "confidence": confidence,
         "horizons": per_horizon,
         "stress": stress,
-        "drilldown": {
-            "tail_contribution_krw": tail_contribution_krw,
-            "tail_contribution_pct": tail_contribution_pct,
-        },
+        "drilldown": drilldown,
         "backtest": backtest,
         "meta": {
             "method": "historical",
@@ -233,6 +246,9 @@ def compute_metrics(
             "fx_applied": fx_applied,
             "autocorrelation_lag1": autocorrelation_lag1,
             "methodology_ref": methodology_ref,
+            "data_source": data_source,
+            "tickers": tickers,
+            "fx_ticker": fx_ticker,
             "computation_hash": sha256_of_dict(payload),
         },
     }

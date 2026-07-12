@@ -10,6 +10,7 @@ pandas
 pyarrow
 scipy
 pyyaml
+yfinance
 python-dotenv
 pypdf
 pytest
