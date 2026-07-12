@@ -61,7 +61,9 @@ def main() -> None:
         "judge_retries": 0,
     }
     result = rag_cite(state, llm=get_llm(temperature=0.0), retriever=retriever)
-    verified = [citation for citation in result["citations"] if citation.get("verified") is True]
+    verified = result["citations"]
+    if any(citation.get("verified") is not True for citation in verified):
+        raise RuntimeError("rag_cite가 검증되지 않은 인용을 반환했습니다.")
     print(f"RAG_CITE: citations={len(result['citations'])} verified={len(verified)}")
     for citation in verified:
         print(
