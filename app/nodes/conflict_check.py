@@ -12,8 +12,14 @@ def conflict_check(state: RiskState) -> dict:
     portfolio = state.get("portfolio") or []
     total_value = sum(p["value_krw"] for p in portfolio)
 
-    liquidity_total = sum(
-        n.get("amount_krw", 0) for n in (ips.get("liquidity_needs") or [])
+    # 새 IPS 공개 JSON은 Liquidity 카테고리만 노출한다. 30% 충돌 판정에 필요한
+    # 구체적 금액은 추출 노드가 별도 상태값으로 저장한다. 이전 IPS 계약의
+    # liquidity_needs도 계속 지원해 기존 실행·테스트와 호환한다.
+    extracted_amount = state.get("liquidity_required_krw")
+    liquidity_total = (
+        extracted_amount
+        if extracted_amount is not None
+        else sum(n.get("amount_krw", 0) for n in (ips.get("liquidity_needs") or []))
     )
 
     conflicts = []
