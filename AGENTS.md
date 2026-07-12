@@ -78,7 +78,7 @@ START
 - 컴파일: `g.compile(checkpointer=MemorySaver(), interrupt_before=["approval_gate"])`
 - 노드는 순수 함수로, 바꾼 키만 반환한다(레포 구조의 `nodes/` 규약과 동일).
 - judge가 규칙 기반이므로 실패 사유가 구조적이며, 재시도 증가는 해결 확률을
-  높이지 않는다. 2회 초과 시 수동검토로 전환한다.
+  높이지 않는다. 2회 시도 후 실패 시 수동검토로 전환한다.
 
 ## RiskState 데이터 계약 키
 

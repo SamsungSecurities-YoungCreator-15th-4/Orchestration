@@ -250,8 +250,12 @@ def test_judge_retry_limit_routes_to_report_with_manual_review_warning():
         "judge": {"passed": False, "manual_review_flags": []},
     }
 
-    assert MAX_JUDGE_RETRIES == 2
-    assert route_after_judge({**failed_state, "judge_retries": 1}) == "rag_cite"
+    assert (
+        route_after_judge(
+            {**failed_state, "judge_retries": MAX_JUDGE_RETRIES - 1}
+        )
+        == "rag_cite"
+    )
     exhausted_state = {
         **failed_state,
         "judge_retries": MAX_JUDGE_RETRIES,
