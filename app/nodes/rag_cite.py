@@ -41,8 +41,14 @@ def _build_query(metrics: dict) -> str:
     return " / ".join(parts)
 
 
-def _build_explanations(metrics: dict, revision: int, judge_feedback: str) -> list[dict]:
+def _build_explanations(
+    metrics: dict,
+    revision: int,
+    judge_feedback: str,
+    as_of_date: str | None,
+) -> list[dict]:
     """결정론적 설명 문단 생성 (metrics 기반, LLM 미사용)."""
+    reference_date = as_of_date or "미지정"
     explanations = [
         {
             "topic": "VaR 해석",
@@ -59,6 +65,15 @@ def _build_explanations(metrics: dict, revision: int, judge_feedback: str) -> li
                 "고금리·강달러 복합 충격 시나리오는 금리 민감 자산과 "
                 "국내주식의 동반 하락을 가정한 것으로, 역사적 분포 기반 "
                 "VaR가 포착하지 못하는 꼬리 위험을 보완한다."
+            ),
+            "revision": revision,
+        },
+        {
+            "topic": "기준일 및 유의사항",
+            "text": (
+                f"기준일은 {reference_date}입니다. 본 설명은 과거 데이터 기반 "
+                "리스크 추정치이며 투자 권유가 아니고, 원금 또는 수익을 "
+                "보장하지 않습니다. 실제 결과와 다를 수 있습니다."
             ),
             "revision": revision,
         },
@@ -138,10 +153,14 @@ def _llm_text(response) -> str:
 def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
     """그래프 노드. llm/retriever 미주입 시 지연 구성, 불가하면 폴백."""
     metrics = state.get("metrics") or {}
+    run_config = state.get("run_config") or {}
     revision = state.get("judge_retries", 0)  # judge 루프 재작성 횟수
     judge_feedback = state.get("judge_feedback") or ""
+    meta = metrics.get("meta") or {}
+    data_period = meta.get("data_period") or {}
+    as_of_date = data_period.get("end") or run_config.get("as_of_date")
 
-    explanations = _build_explanations(metrics, revision, judge_feedback)
+    explanations = _build_explanations(metrics, revision, judge_feedback, as_of_date)
 
     # --- 1) retriever 준비 (미주입 시 지연 구성; 실패하면 폴백) ---
     if retriever is None:
@@ -185,6 +204,16 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
 
     # --- 4) 결정론 검증 — 통과분만 state에 기록 ---
     verified, rejected = verify_citations(candidates, chunks)
+    chunk_text_by_id = {
+        chunk.get("chunk_id"): chunk.get("text", "")
+        for chunk in chunks
+        if chunk.get("chunk_id")
+    }
+    for citation in verified:
+        citation.extra = {
+            **citation.extra,
+            "chunk_text": chunk_text_by_id.get(citation.chunk_id, ""),
+        }
     for r in rejected:
         log.warning(
             "인용 탈락: chunk_id=%s source=%s — %s (quote=%.60s…)",
