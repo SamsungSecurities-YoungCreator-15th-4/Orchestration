@@ -3,6 +3,7 @@
 초안 합격선: 정확한 수치값이 아니라 '방향(단조성)'과 '재현성'을 검증한다.
 """
 import functools
+import json
 import sys
 from datetime import date
 from pathlib import Path
@@ -20,7 +21,7 @@ from app.engine.metrics import (
     portfolio_returns,
 )
 from app.engine import returns as returns_mod
-from app.engine.returns import _generate_dummy_returns, load_returns
+from app.engine.returns import ASSET_CLASSES, _generate_dummy_returns, load_real_returns, load_returns
 from app.engine.stress import run_all_stress
 from app.nodes.var_engine import var_engine
 
@@ -173,7 +174,12 @@ def _load_returns_with_tmp_cache(tmp_path):
 
 
 def test_var_engine_respects_lookback_config(tmp_path, monkeypatch):
-    """var_lookback_days가 config에서 오면 실제 관측 개수(n_observations)에 반영된다."""
+    """var_lookback_days가 config에서 오면 실제 관측 개수(n_observations)에 반영된다.
+
+    data_source="dummy"로 고정 — 기본값(real)은 committed 캐시와 파라미터가
+    맞을 때만 오프라인으로 동작하므로, lookback을 임의로 바꾸는 이 테스트는
+    네트워크 의존 없는 dummy 경로로 검증한다.
+    """
     monkeypatch.setattr(
         "app.nodes.var_engine.load_returns", _load_returns_with_tmp_cache(tmp_path)
     )
@@ -181,6 +187,7 @@ def test_var_engine_respects_lookback_config(tmp_path, monkeypatch):
         "run_config": {
             "as_of_date": "2026-07-03",
             "var_lookback_days": 120,
+            "data_source": "dummy",
         },
         "portfolio": PORTFOLIO,
     }
@@ -190,23 +197,324 @@ def test_var_engine_respects_lookback_config(tmp_path, monkeypatch):
 
 
 def test_var_engine_defaults_lookback_when_unset(tmp_path, monkeypatch):
-    """var_lookback_days가 config에 없으면 returns.py의 DEFAULT_N(250)을 쓴다."""
+    """var_lookback_days가 config에 없으면 returns.py의 DEFAULT_N(250)을 쓴다(dummy 경로)."""
     monkeypatch.setattr(
         "app.nodes.var_engine.load_returns", _load_returns_with_tmp_cache(tmp_path)
     )
-    state = {"run_config": {"as_of_date": "2026-07-03"}, "portfolio": PORTFOLIO}
+    state = {
+        "run_config": {"as_of_date": "2026-07-03", "data_source": "dummy"},
+        "portfolio": PORTFOLIO,
+    }
     result = var_engine(state)
     assert result["metrics"]["meta"]["n_observations"] == 250
 
 
 def test_var_engine_defaults_lookback_when_explicitly_none(tmp_path, monkeypatch):
-    """var_lookback_days가 명시적으로 None이어도(.get 기본값이 안 먹는 경우) DEFAULT_N을 쓴다."""
+    """var_lookback_days가 명시적으로 None이어도(.get 기본값이 안 먹는 경우) DEFAULT_N을 쓴다(dummy 경로)."""
     monkeypatch.setattr(
         "app.nodes.var_engine.load_returns", _load_returns_with_tmp_cache(tmp_path)
     )
     state = {
-        "run_config": {"as_of_date": "2026-07-03", "var_lookback_days": None},
+        "run_config": {
+            "as_of_date": "2026-07-03",
+            "var_lookback_days": None,
+            "data_source": "dummy",
+        },
         "portfolio": PORTFOLIO,
     }
     result = var_engine(state)
     assert result["metrics"]["meta"]["n_observations"] == 250
+
+
+# --- 실데이터 경로 (yfinance + parquet 캐시) ---
+# 실데이터 캐시(data/returns_real.parquet)는 Yahoo Finance 재배포 제약 때문에
+# git에 커밋하지 않는다(로컬 전용). 그래서 아래 테스트들은 레포에 실제 캐시
+# 파일이 있는지에 기대지 않고, _fetch_real_returns를 스텁으로 바꿔 각자
+# tmp_path에 자기만의 캐시를 만들어 검증한다 — CI·새 클론에서도 네트워크 없이
+# 항상 통과해야 한다.
+def _fake_fetch_real_returns(n, as_of_date, rf_annual):
+    idx = pd.bdate_range(end=pd.Timestamp(as_of_date), periods=n)
+    return pd.DataFrame({c: 0.001 for c in ASSET_CLASSES}, index=idx)[ASSET_CLASSES]
+
+
+def test_load_real_returns_reads_local_cache_offline(tmp_path, monkeypatch):
+    """로컬에 미리 캐시가 있으면(발표 전 1회 예열) 이후 네트워크 없이도 동작한다.
+
+    R7 요구사항(현장 시연은 인터넷 없이도 동작해야 함)의 핵심 전제를 검증한다.
+    캐시를 git에 커밋하는 대신 "미리 한 번 실행해 로컬에 캐시를 남긴다"는
+    전략(VVIP_PB_Advisor와 동일 패턴)을 그대로 재현한다.
+    """
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", _fake_fetch_real_returns)
+    cache_path = tmp_path / "real.parquet"
+    meta_path = tmp_path / "real.meta.json"
+
+    # 1회차 — "발표 전 예열": 네트워크(스텁) 호출로 캐시를 만든다.
+    load_real_returns(n=1250, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+
+    # 2회차 — "발표 당일": 재조회가 발생하면 즉시 실패하게 만들어 오프라인 보장을 증명한다.
+    def fail_if_called(*a, **kw):
+        raise AssertionError("캐시가 있는데도 재조회가 발생했다 — 오프라인 보장이 깨짐")
+
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", fail_if_called)
+    df = load_real_returns(n=1250, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+    assert df.shape == (1250, len(ASSET_CLASSES))
+    assert list(df.columns) == ASSET_CLASSES
+    assert not df.isna().any().any()
+
+
+def test_corrupted_cache_with_matching_meta_is_not_trusted(tmp_path, monkeypatch):
+    """[리뷰 반영] meta만 일치하면 parquet 내용을 검증 없이 반환하던 취약점.
+
+    n=1250·as_of=2026-07-03 meta에 실제로는 1행·종료일 2000-01-01짜리
+    손상된 parquet를 심어도, 예전 코드는 그대로 (1, 6)을 반환했다. 이제는
+    캐시 히트 직후 내용을 검증해 불일치 시 재수집해야 한다.
+    """
+    cache_path = tmp_path / "real.parquet"
+    meta_path = tmp_path / "real.meta.json"
+
+    request = {
+        "n": 1250,
+        "as_of_date": "2026-07-03",
+        "rf_annual": returns_mod.DEFAULT_RF_ANNUAL,
+        "tickers": returns_mod.REAL_ASSET_TICKERS,
+        "fx_ticker": returns_mod.FX_TICKER,
+    }
+    meta_path.write_text(json.dumps(request), encoding="utf-8")
+    bad_df = pd.DataFrame({c: [0.0] for c in ASSET_CLASSES}, index=pd.DatetimeIndex(["2000-01-01"]))
+    bad_df.to_parquet(cache_path)
+
+    calls = []
+
+    def fake_fetch(n, as_of_date, rf_annual):
+        calls.append(n)
+        return _fake_fetch_real_returns(n, as_of_date, rf_annual)
+
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", fake_fetch)
+
+    df = load_real_returns(n=1250, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+    assert calls == [1250]  # 손상된 캐시를 신뢰하지 않고 재수집했다
+    assert len(df) == 1250
+
+
+def test_cache_with_extra_column_is_not_trusted(tmp_path, monkeypatch):
+    """[리뷰 반영] 행 수·컬럼이 일부 맞아도 예상 밖의 추가 컬럼이 섞여 있으면 재수집한다.
+
+    df[ASSET_CLASSES] 슬라이싱 *이후*에 컬럼을 검사하면, 슬라이싱 자체가
+    추가 컬럼을 조용히 버려서 검증이 항상 통과해버린다 — 슬라이싱 전
+    원본에서 검사해야 오염된 캐시를 잡을 수 있다.
+    """
+    cache_path = tmp_path / "real.parquet"
+    meta_path = tmp_path / "real.meta.json"
+    request = {
+        "n": 10,
+        "as_of_date": "2026-07-03",
+        "rf_annual": returns_mod.DEFAULT_RF_ANNUAL,
+        "tickers": returns_mod.REAL_ASSET_TICKERS,
+        "fx_ticker": returns_mod.FX_TICKER,
+    }
+    meta_path.write_text(json.dumps(request), encoding="utf-8")
+    idx = pd.bdate_range(end="2026-07-03", periods=10)
+    bad_df = pd.DataFrame({c: 0.001 for c in ASSET_CLASSES}, index=idx)
+    bad_df["_unexpected_extra_column"] = 0.5  # 오염 흔적 — 정상 캐시엔 없어야 함
+    bad_df.to_parquet(cache_path)
+
+    calls = []
+
+    def fake_fetch(n, as_of_date, rf_annual):
+        calls.append(n)
+        return _fake_fetch_real_returns(n, as_of_date, rf_annual)
+
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", fake_fetch)
+
+    df = load_real_returns(n=10, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+    assert calls == [10]  # 오염된 캐시를 신뢰하지 않고 재수집했다
+    assert list(df.columns) == ASSET_CLASSES
+
+
+def test_cache_with_abnormal_span_is_not_trusted(tmp_path, monkeypatch):
+    """[리뷰 반영] 관측치 수(n)는 맞아도 실제 날짜 범위가 비정상으로 짧으면 재수집한다.
+
+    n=1250개의 타임스탬프를 하루도 안 되는 구간(분 단위)에 몰아넣으면
+    행 수·컬럼·결측치·정렬 체크는 전부 통과하지만, 실제 5년 관측이라는
+    전제와는 완전히 어긋난다 — 시작일 기반 기간 검증이 필요한 이유.
+    """
+    cache_path = tmp_path / "real.parquet"
+    meta_path = tmp_path / "real.meta.json"
+    request = {
+        "n": 1250,
+        "as_of_date": "2026-07-03",
+        "rf_annual": returns_mod.DEFAULT_RF_ANNUAL,
+        "tickers": returns_mod.REAL_ASSET_TICKERS,
+        "fx_ticker": returns_mod.FX_TICKER,
+    }
+    meta_path.write_text(json.dumps(request), encoding="utf-8")
+    idx = pd.date_range(end="2026-07-03", periods=1250, freq="min")
+    bad_df = pd.DataFrame({c: 0.001 for c in ASSET_CLASSES}, index=idx)
+    bad_df.to_parquet(cache_path)
+
+    calls = []
+
+    def fake_fetch(n, as_of_date, rf_annual):
+        calls.append(n)
+        return _fake_fetch_real_returns(n, as_of_date, rf_annual)
+
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", fake_fetch)
+
+    load_real_returns(n=1250, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+    assert calls == [1250]  # 기간이 비정상적으로 짧은 캐시를 신뢰하지 않고 재수집했다
+
+
+def test_real_cache_invalidated_on_param_mismatch(tmp_path, monkeypatch):
+    """캐시 meta와 요청 파라미터가 다르면 재수집 경로를 탄다.
+
+    _fetch_real_returns를 스텁으로 바꿔 네트워크 없이 캐시 히트/미스 로직만 검증한다.
+    """
+    calls = []
+
+    def fake_fetch(n, as_of_date, rf_annual):
+        calls.append(n)
+        idx = pd.bdate_range(end=pd.Timestamp(as_of_date), periods=n)
+        return pd.DataFrame({c: 0.001 for c in ASSET_CLASSES}, index=idx)[ASSET_CLASSES]
+
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", fake_fetch)
+    cache_path = tmp_path / "real.parquet"
+    meta_path = tmp_path / "real.meta.json"
+
+    load_real_returns(n=5, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+    load_real_returns(n=5, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+    assert calls == [5]  # 두 번째 호출은 캐시 히트 — 재수집 없음
+
+    load_real_returns(n=6, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+    assert calls == [5, 6]  # n이 달라졌으니 재수집
+
+
+def test_extract_close_handles_multiindex_columns():
+    """yf.download()가 (Close, ticker) MultiIndex 컬럼을 줄 때 정상 추출된다."""
+    idx = pd.bdate_range("2026-01-01", periods=3)
+    cols = pd.MultiIndex.from_product([["Close", "Open"], ["^KS11"]])
+    data = pd.DataFrame([[1.0, 1.1], [2.0, 2.1], [3.0, 3.1]], index=idx, columns=cols)
+    out = returns_mod._extract_close(data, "^KS11")
+    assert list(out) == [1.0, 2.0, 3.0]
+
+
+def test_extract_close_handles_flat_columns():
+    """yf.download()가 flat 컬럼(Close 단일 Series)을 줄 때도 KeyError 없이 추출된다."""
+    idx = pd.bdate_range("2026-01-01", periods=3)
+    data = pd.DataFrame({"Close": [1.0, 2.0, 3.0], "Open": [1.1, 2.1, 3.1]}, index=idx)
+    out = returns_mod._extract_close(data, "^KS11")
+    assert list(out) == [1.0, 2.0, 3.0]
+
+
+def test_apply_fx_conversion_formula():
+    """r_KRW = (1+r_USD)*(1+r_FX) - 1 공식이 정확히 계산되는지 직접 검증(네트워크 불요).
+
+    이전에는 이 산식이 커밋된 실데이터 캐시(블랙박스)나 _fetch_real_returns를
+    통째로 스텁으로 바꾼 캐시 테스트로만 간접 검증됐고, 공식 자체를 검증하는
+    테스트가 없었다. _apply_fx_conversion을 순수 함수로 분리해 직접 확인한다.
+    """
+    idx = pd.bdate_range("2026-01-01", periods=2)
+    # 현지통화(USD) 수익률: global_equity/global_bond/alternatives = +2%, 나머지 = +1%
+    pct = pd.DataFrame(
+        {ac: [0.02, 0.02] if ac in returns_mod.USD_DENOMINATED else [0.01, 0.01]
+         for ac in returns_mod.REAL_ASSET_TICKERS},
+        index=idx,
+    )
+    fx_ret = pd.Series([0.03, -0.01], index=idx)  # USD/KRW 변동률(1일차 원화약세, 2일차 원화강세)
+
+    out = returns_mod._apply_fx_conversion(pct, fx_ret, rf_annual=0.0325)
+
+    # 원화 상장 자산(domestic_*)은 환율 무관 — 현지통화 수익률 그대로.
+    assert out["domestic_equity"].iloc[0] == pytest.approx(0.01)
+    assert out["domestic_bond"].iloc[1] == pytest.approx(0.01)
+    # USD 상장 자산은 (1+r_USD)*(1+r_FX)-1 로 결합.
+    expected_day1 = (1 + 0.02) * (1 + 0.03) - 1
+    expected_day2 = (1 + 0.02) * (1 - 0.01) - 1
+    assert out["global_equity"].iloc[0] == pytest.approx(expected_day1)
+    assert out["global_equity"].iloc[1] == pytest.approx(expected_day2)
+    assert out["alternatives"].iloc[0] == pytest.approx(expected_day1)
+    # cash는 시장데이터 무관 — rf_annual/252 상수.
+    assert out["cash"].tolist() == pytest.approx([0.0325 / 252, 0.0325 / 252])
+
+
+def _load_real_returns_with_tmp_cache(tmp_path):
+    """load_real_returns의 cache_path/meta_path 기본값을 tmp 경로로 고정한 래퍼.
+
+    _load_returns_with_tmp_cache와 동일한 이유(기본값은 함수 정의 시점에
+    바인딩됨)로, var_engine이 참조하는 load_real_returns 자체를 교체해야
+    테스트가 로컬 실데이터 캐시를 건드리지 않는다.
+    """
+    return functools.partial(
+        returns_mod.load_real_returns, cache_path=tmp_path / "real.parquet", meta_path=tmp_path / "real.meta.json"
+    )
+
+
+def test_var_engine_uses_real_data_by_default(tmp_path, monkeypatch):
+    """data_source 미지정 시 기본값 real — fx_applied=True, 출처 메타(tickers 등) 포함."""
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", _fake_fetch_real_returns)
+    monkeypatch.setattr("app.nodes.var_engine.load_real_returns", _load_real_returns_with_tmp_cache(tmp_path))
+    state = {
+        "run_config": {"as_of_date": "2026-07-03", "var_lookback_days": 10},
+        "portfolio": PORTFOLIO,
+    }
+    result = var_engine(state)
+    meta = result["metrics"]["meta"]
+    assert meta["fx_applied"] is True
+    assert meta["n_observations"] == 10
+    assert meta["methodology_ref"] == "methodology_var_cvar_2026"
+    assert meta["data_source"] == "real"
+    assert meta["tickers"]["domestic_equity"] == "^KS11"
+    assert meta["fx_ticker"] == "KRW=X"
+
+
+def test_var_engine_real_path_defaults_to_1250_when_lookback_unset(tmp_path, monkeypatch):
+    """[리뷰 반영] var_lookback_days가 없으면 real 경로는 방법론 문서와 일치하는
+    1,250(returns.DEFAULT_REAL_N)을 써야 한다 — 더미 전용 DEFAULT_N(250)이 아니다."""
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", _fake_fetch_real_returns)
+    monkeypatch.setattr("app.nodes.var_engine.load_real_returns", _load_real_returns_with_tmp_cache(tmp_path))
+    state = {"run_config": {"as_of_date": "2026-07-03"}, "portfolio": PORTFOLIO}
+    result = var_engine(state)
+    assert result["metrics"]["meta"]["n_observations"] == 1250
+
+
+def test_var_engine_preserves_rf_rate_zero(monkeypatch):
+    """[리뷰 반영] rf_rate=0.0은 유효한 설정이며 DEFAULT_RF_ANNUAL(3.25%)로 덮어쓰지 않는다."""
+    captured = {}
+
+    def fake_load_real_returns(n, as_of_date, rf_annual):
+        captured["rf_annual"] = rf_annual
+        return _fake_fetch_real_returns(n, as_of_date, rf_annual)
+
+    monkeypatch.setattr("app.nodes.var_engine.load_real_returns", fake_load_real_returns)
+    state = {
+        "run_config": {"as_of_date": "2026-07-03", "var_lookback_days": 10, "rf_rate": 0.0},
+        "portfolio": PORTFOLIO,
+    }
+    var_engine(state)
+    assert captured["rf_annual"] == 0.0
+
+
+def test_var_engine_rejects_unsupported_data_source():
+    """[리뷰 반영] data_source 오타("reel" 등)를 조용히 dummy로 처리하지 않고 즉시 실패한다."""
+    state = {
+        "run_config": {"as_of_date": "2026-07-03", "data_source": "reel"},
+        "portfolio": PORTFOLIO,
+    }
+    with pytest.raises(ValueError):
+        var_engine(state)
+
+
+def test_var_engine_dummy_source_explicit_opt_in(tmp_path, monkeypatch):
+    """data_source="dummy"를 명시하면 fx_applied=False로 더미 경로를 탄다."""
+    monkeypatch.setattr(
+        "app.nodes.var_engine.load_returns", _load_returns_with_tmp_cache(tmp_path)
+    )
+    state = {
+        "run_config": {"as_of_date": "2026-07-03", "data_source": "dummy"},
+        "portfolio": PORTFOLIO,
+    }
+    result = var_engine(state)
+    meta = result["metrics"]["meta"]
+    assert meta["fx_applied"] is False
+    assert meta["data_source"] == "dummy"
+    assert meta["tickers"] is None
+    assert meta["fx_ticker"] is None

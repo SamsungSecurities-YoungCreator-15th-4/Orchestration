@@ -56,6 +56,9 @@ def compute_metrics(
     data_period_meta: dict | None = None,
     fx_applied: bool = False,
     methodology_ref: str | None = None,
+    data_source: str | None = None,
+    tickers: dict | None = None,
+    fx_ticker: str | None = None,
 ) -> dict:
     """포트폴리오 리스크 지표 일괄 계산.
 
@@ -109,6 +112,9 @@ def compute_metrics(
             "fx_applied": fx_applied,
             "data_period": data_period_meta,
             "methodology_ref": methodology_ref,
+            "data_source": data_source,
+            "tickers": tickers,
+            "fx_ticker": fx_ticker,
         },
         "results": {"per_horizon": per_horizon, "stress": stress},
     }
@@ -125,6 +131,9 @@ def compute_metrics(
             "data_period": data_period_meta,
             "fx_applied": fx_applied,
             "methodology_ref": methodology_ref,
+            "data_source": data_source,
+            "tickers": tickers,
+            "fx_ticker": fx_ticker,
             "computation_hash": sha256_of_dict(payload),
         },
     }
