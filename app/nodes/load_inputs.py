@@ -39,8 +39,12 @@ def load_inputs(state: RiskState) -> dict:
         "raw_input": SAMPLE_RAW_INPUT,
         "portfolio": DUMMY_PORTFOLIO,
         "market_data_ref": {
-            "source": "dummy",
+            "source": config.get("data_source", "real"),
             "as_of_date": config["as_of_date"],
-            "note": "스켈레톤 단계 — 실제 시장데이터 미연결",
+            "note": (
+                "yfinance 실데이터(app.engine.returns.load_real_returns) 연동"
+                if config.get("data_source", "real") == "real"
+                else "고정 수식 더미 데이터(오프라인 개발·테스트용)"
+            ),
         },
     }

@@ -13,7 +13,7 @@ from app.nodes.var_engine import var_engine
 from app.state import RiskState
 
 MAX_CONFLICT_RETRIES = 1
-MAX_JUDGE_RETRIES = 3
+MAX_JUDGE_RETRIES = 2
 
 
 def route_after_conflict_check(state: RiskState) -> str:
