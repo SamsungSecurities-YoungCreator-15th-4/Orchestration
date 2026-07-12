@@ -96,6 +96,21 @@ def test_numeric_consistency_pass_and_fail():
     assert "4,000만원" in reason
 
 
+def test_numeric_consistency_preserves_confidence_key_for_list_values():
+    explanations = _explanations("99% 신뢰수준은 약 100일 중 1일의 초과를 뜻합니다.")
+
+    assert numeric_consistency(
+        explanations,
+        {"confidence": [0.99]},
+    )[0] is True
+
+
+def test_numeric_consistency_ignores_unitless_ordinals_and_counts():
+    explanations = _explanations("2가지 요인 중 1순위 위험을 설명합니다.")
+
+    assert numeric_consistency(explanations, {})[0] is True
+
+
 def test_hallucination_pass_and_fail_with_chunk_text():
     passing_llm = _AxisLLM(hallucination_passed=True)
     assert hallucination(_explanations("VaR 설명"), [VERIFIED_CITATION], passing_llm)[0] is True
@@ -137,10 +152,14 @@ def test_disclaimer_pass_and_fail():
 
 def test_prohibited_expression_negated_pass_and_positive_fail():
     assert prohibited_expression(_explanations("원금은 보장되지 않습니다."))[0] is True
+    assert prohibited_expression(_explanations("원금은 보장 안 됨을 명시합니다."))[0] is True
 
     passed, reason = prohibited_expression(_explanations("수익률을 보장합니다."))
     assert passed is False
     assert "보장" in reason
+
+    passed, _ = prohibited_expression(_explanations("수익률을 보장 안정적으로 제공합니다."))
+    assert passed is False
 
 
 def test_prohibited_expression_double_negation_requests_manual_review():

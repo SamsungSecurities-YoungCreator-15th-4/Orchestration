@@ -25,8 +25,9 @@ NEGATION_WINDOW = 15
 _DATE_RE = re.compile(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)")
 _NUMBER_RE = re.compile(
     r"(?<![\w.])(?P<number>[+-]?\d[\d,]*(?:\.\d+)?)\s*"
-    r"(?P<unit>%|bp|억원|억|만원|원|거래일|일)?"
+    r"(?P<unit>%|bp|억원|억|만원|원|거래일|일)"
 )
+_SPACED_AN_NEGATION_RE = re.compile(r"(?:^|\s)안(?:\s|되|돼|됨|함|하)")
 
 
 def _explanation_text(explanations: list) -> str:
@@ -73,7 +74,7 @@ def _metric_numbers(value, *, key: str = "") -> set[float]:
             numbers.update(_metric_numbers(child, key=str(child_key)))
     elif isinstance(value, (list, tuple)):
         for child in value:
-            numbers.update(_metric_numbers(child))
+            numbers.update(_metric_numbers(child, key=key))
     return numbers
 
 
@@ -230,6 +231,8 @@ def _scan_prohibited(explanations: list) -> tuple[list[str], list[str]]:
         for match in re.finditer(re.escape(term), text):
             context = text[match.end() : match.end() + NEGATION_WINDOW]
             negations = [marker for marker in NEGATION_MARKERS if marker in context]
+            if _SPACED_AN_NEGATION_RE.search(context):
+                negations.append("안")
             if not negations:
                 violations.append(f"{term}({context.strip()[:20]})")
             elif len(negations) > 1:
