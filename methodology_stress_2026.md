@@ -100,7 +100,7 @@
 - **포트폴리오 손실:** 자산군별 손실의 합
 - **손실률:** 포트폴리오 손실 ÷ 총 평가액
 
-**부호 규약:** `loss_krw`·`loss_pct`는 **양수 = 손실**로 표기한다(Historical VaR의 규약과 통일). 충격률이 음수(하락)일 때 손실은 양수가 된다. 예: 시나리오 A의 손실은 `loss_pct = +0.074`(총자산의 7.4% 손실)로 표기된다. 소비자(리포트)가 부호를 다시 뒤집을(`abs()`) 필요가 없다. 사람이 보는 화면에서는 필요 시 "손실 −3.7억"처럼 표시할 수 있으나, 엔진 내부 계약값은 손실 크기를 양수로 저장한다.
+**부호 규약:** `loss_krw`·`loss_pct`는 **양수 = 손실**로 표기한다(Historical VaR의 규약과 통일). 충격률이 음수(하락)일 때 손실은 양수가 된다. 예: 시나리오 A의 손실은 `loss_pct = +0.178`(총자산의 17.8% 손실)로 표기된다. 소비자(리포트)가 부호를 다시 뒤집을(`abs()`) 필요가 없다. 사람이 보는 화면에서는 필요 시 "손실 −8.9억"처럼 표시할 수 있으나, 엔진 내부 계약값은 손실 크기를 양수로 저장한다.
 
 **반환 계약(`run_stress`):** `{scenario, description, reference, loss_krw, loss_pct, by_asset}`. `run_all_stress`는 이를 시나리오 이름(`A_high_rate`, `B_strong_usd`)을 키로 묶어 반환한다. 리포트 조립(`assemble_report._stress_summary`)은 이 중 **손실이 가장 큰 시나리오(worst)**를 대표로 뽑아 `stress_scenario`/`stress_loss_krw`/`stress_loss_pct`로 요약하고, 전체 시나리오 목록(`stress_scenarios`, `reference` 포함)도 함께 전달한다.
 

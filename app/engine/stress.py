@@ -29,7 +29,7 @@ SCENARIO_A_HIGH_RATE = {
 # 원화자산은 자본유출·위험회피 충격을 직접 받는다.
 SCENARIO_B_STRONG_USD = {
     "name": "B_strong_usd",
-    "description": "원/달러 +15% 급등 — 미헤지 외화자산 FX 환산이익이 위험회피 손실을 상쇄, 원화자산은 위험회피 직격",
+    "description": "원/달러 +15% 급등 — 미헤지 외화자산 FX 환산이익이 위험회피 손실을 일부 상쇄, 원화자산은 위험회피 직격",
     "reference": "2022 강달러 국면(원/달러 1,440원대) 참조 — 스타일라이즈드(방향·크기 정합)",
     "shocks": {
         "domestic_equity": -0.12,
