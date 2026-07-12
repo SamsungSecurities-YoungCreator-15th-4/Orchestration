@@ -1,9 +1,4 @@
-"""재현가능·설명가능 리스크 리포트 엔진 — Streamlit 뷰어.
-
-scripts/run_graph.py와 동일한 방식(build_graph → 스트리밍 실행 → HITL 자동 승인)으로
-그래프를 돌리고, assemble_report가 만든 최종 report를 화면에 그린다.
-"""
-import os
+"""자연어 IPS·포트폴리오 입력부터 PB 승인·리스크 결과까지 제공하는 Streamlit UI."""
 import sys
 import uuid
 from pathlib import Path
@@ -13,6 +8,19 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.graph import build_graph
+from app.nodes.load_inputs import (
+    ASSET_DEFINITIONS,
+    DUMMY_PORTFOLIO,
+    SAMPLE_RAW_INPUT,
+    portfolio_from_percentages,
+)
+from app.state import (
+    FIXED_AGE,
+    FIXED_ASSET_EOK,
+    FIXED_GOAL,
+    FIXED_RISK,
+    IPSProfile,
+)
 
 st.set_page_config(page_title="재현가능·설명가능 리스크 리포트 엔진", layout="wide")
 st.markdown(
@@ -105,33 +113,20 @@ def format_pct(val) -> str:
     return f"{val:.1%}"
 
 
+DEFAULT_PERCENTAGES = {
+    item["asset_class"]: item["weight"] * 100 for item in DUMMY_PORTFOLIO
+}
+
 with st.sidebar:
-    st.header("실행 옵션")
-    force_judge_fail = st.number_input("judge 강제 실패 횟수", min_value=0, max_value=5, value=0)
-    with_conflict = st.checkbox("IPS 충돌 시연")
-    run_clicked = st.button("그래프 실행", type="primary")
-
-if run_clicked:
-    os.environ["RISK_FORCE_JUDGE_FAIL"] = str(force_judge_fail)
-    os.environ["RISK_FORCE_CONFLICT"] = "1" if with_conflict else "0"
-
-    graph = build_graph()
-    config = {"configurable": {"thread_id": str(uuid.uuid4())}}
-
-    with st.spinner("그래프 실행 중..."):
-        for _ in graph.stream({}, config, stream_mode="updates"):
-            pass
-
-        snapshot = graph.get_state(config)
-        if snapshot.next and "approval_gate" in snapshot.next:
-            graph.update_state(
-                config,
-                {"approval": {"status": "approved", "approver": "ui-auto", "note": "UI 자동 승인"}},
-            )
-            for _ in graph.stream(None, config, stream_mode="updates"):
-                pass
-
-    st.session_state["report"] = graph.get_state(config).values.get("report")
+    st.header("시연 옵션")
+    force_judge_fail = st.number_input(
+        "judge 강제 실패 횟수", min_value=0, max_value=5, value=0
+    )
+    with_conflict = st.checkbox("IPS 충돌 강제 시연")
+    if st.button("새 상담 시작"):
+        for key in ("pending_graph", "pending_config", "pending_state", "report"):
+            st.session_state.pop(key, None)
+        st.rerun()
 
 report = st.session_state.get("report")
 
@@ -139,12 +134,133 @@ if not report:
     st.markdown(
         """
         <div class="report-header">
-        <h1>재현가능·설명가능 리스크 리포트 엔진</h1>
-        <p>왼쪽에서 옵션을 선택하고 '그래프 실행'을 눌러 리포트를 생성하세요.</p>
+        <h1>고객 상담 및 제안 포트폴리오 입력</h1>
+        <p>자연어 상담에서 IPS를 추출하고 PB 승인 후에만 리스크 연산을 실행합니다.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+    with st.form("client_input"):
+        section_title("1. 고객 자연어 상담")
+        raw_input = st.text_area(
+            "상담 내용",
+            value=SAMPLE_RAW_INPUT,
+            height=150,
+            help="이름·직업·목표 수익 금액·투자기간·세금·유동성·법적 제약 등을 자유롭게 입력하세요.",
+        )
+        fixed_cols = st.columns(4)
+        fixed_cols[0].text_input("Age", value=FIXED_AGE, disabled=True)
+        fixed_cols[1].text_input("Asset (억 원)", value=f"{FIXED_ASSET_EOK:g}", disabled=True)
+        fixed_cols[2].text_input("Risk", value=FIXED_RISK, disabled=True)
+        fixed_cols[3].text_input("Goal", value=FIXED_GOAL, disabled=True)
+
+        section_title("2. 제안 포트폴리오 비중")
+        st.caption("6개 자산군 비중을 퍼센트 단위로 입력하세요. 합계는 100%여야 합니다.")
+        percentages: dict[str, float] = {}
+        cols = st.columns(3)
+        for idx, (asset_class, name) in enumerate(ASSET_DEFINITIONS):
+            percentages[asset_class] = cols[idx % 3].number_input(
+                f"{name} (%)",
+                min_value=0.0,
+                max_value=100.0,
+                value=float(DEFAULT_PERCENTAGES[asset_class]),
+                step=1.0,
+            )
+        total_pct = sum(percentages.values())
+        st.caption(f"현재 합계: {total_pct:g}%")
+        prepare_clicked = st.form_submit_button("IPS 추출 및 PB 검토 요청", type="primary")
+
+    if prepare_clicked:
+        try:
+            portfolio = portfolio_from_percentages(percentages)
+            graph = build_graph()
+            config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+            with st.spinner("gpt-4o로 IPS를 추출하고 충돌을 검사하는 중..."):
+                for _ in graph.stream(
+                    {
+                        "raw_input": raw_input,
+                        "portfolio": portfolio,
+                        "demo_options": {
+                            "force_judge_fail": int(force_judge_fail),
+                            "force_conflict": with_conflict,
+                        },
+                    },
+                    config,
+                    stream_mode="updates",
+                ):
+                    pass
+            snapshot = graph.get_state(config)
+            if not (snapshot.next and "approval_gate" in snapshot.next):
+                raise RuntimeError("그래프가 PB 승인 게이트에서 정지하지 않았습니다.")
+            st.session_state["pending_graph"] = graph
+            st.session_state["pending_config"] = config
+            st.session_state["pending_state"] = dict(snapshot.values)
+            st.rerun()
+        except Exception as exc:
+            st.error(f"IPS 추출 또는 입력 검증에 실패했습니다: {exc}")
+
+    pending = st.session_state.get("pending_state")
+    if pending:
+        section_title("3. 추출 IPS 및 PB 승인")
+        st.json(pending.get("ips") or {})
+        st.dataframe(
+            pending.get("portfolio") or [],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        conflicts = pending.get("conflicts") or []
+        if conflicts:
+            st.error("IPS 상충 조건이 발견되어 계산 단계로 진행할 수 없습니다.")
+            st.dataframe(conflicts, use_container_width=True, hide_index=True)
+        else:
+            with st.form("pb_approval"):
+                ips = pending.get("ips") or {}
+                unique_text = st.text_input(
+                    "Unique 수정",
+                    value=ips.get("Unique", ""),
+                    help="고금리·강달러 충격 문구는 저장 시 항상 맨 앞에 유지됩니다.",
+                )
+                approver = st.text_input("PB 승인자", placeholder="PB 이름 또는 사번")
+                note = st.text_area("승인 의견", placeholder="검토 의견을 입력하세요.")
+                approve_clicked = st.form_submit_button("PB 승인 후 리스크 분석", type="primary")
+
+            if approve_clicked:
+                if not approver.strip():
+                    st.error("PB 승인자를 입력해야 합니다.")
+                else:
+                    try:
+                        graph = st.session_state["pending_graph"]
+                        config = st.session_state["pending_config"]
+                        reviewed_ips = IPSProfile.model_validate(
+                            {**ips, "Unique": unique_text}
+                        ).model_dump()
+                        graph.update_state(
+                            config,
+                            {
+                                "ips": reviewed_ips,
+                                "approval": {
+                                    "status": "approved",
+                                    "approver": approver.strip(),
+                                    "note": note.strip(),
+                                },
+                            },
+                        )
+                        with st.spinner("승인된 포트폴리오의 리스크를 분석하는 중..."):
+                            for _ in graph.stream(None, config, stream_mode="updates"):
+                                pass
+                        st.session_state["report"] = graph.get_state(config).values.get("report")
+                        for key in ("pending_graph", "pending_config", "pending_state"):
+                            st.session_state.pop(key, None)
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"PB 승인 및 리스크 분석 중 오류가 발생했습니다: {exc}")
+
+report = st.session_state.get("report")
+
+if not report:
+    st.stop()
 else:
     total_value = report.get("summary", {}).get("portfolio", {}).get("total_value_krw")
     st.markdown(

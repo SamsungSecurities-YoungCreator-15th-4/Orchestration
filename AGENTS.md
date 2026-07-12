@@ -90,9 +90,11 @@ START
 | 키 | 타입 | 생산/소비 노드 (graph.py 근거) |
 | --- | --- | --- |
 | `run_config` | `dict` | TBD (노드 구현 범위) |
+| `demo_options` | `dict` | UI/CLI의 세션별 충돌·judge·오프라인 시연 옵션 |
 | `trace_id` | `str` | TBD |
 | `raw_input` | `str` | TBD |
 | `portfolio` | `list` | TBD |
+| `liquidity_required_krw` | `float \| None` | `extract_ips`가 자연어의 명시적 유동성 필요 금액을 원 단위로 저장 |
 | `market_data_ref` | `dict` | TBD |
 | `ips` | `dict` | TBD |
 | `conflicts` | `list` | `route_after_conflict_check`가 읽어 분기① 판단 |
@@ -111,10 +113,11 @@ START
 
 ### `IPSProfile` (pydantic `BaseModel`)
 
-`return_target_pct`(`float | None`), `risk_tolerance`(`Literal["conservative","neutral","aggressive"]`,
-기본 `"neutral"`), `time_horizon_years`(`float | None`), `tax_notes`(`list[str]`),
-`liquidity_needs`(`list[dict]`), `legal_constraints`(`list[str]`), `unique_circumstances`(`list[str]`),
-`evidence`(`list[dict]`).
+고객 상담용 공개 IPS JSON은 `Name`, `Age`, `Job`, `Goal`, `Asset`, `Return`, `Risk`,
+`Time`, `Tax`, `Liquidity`, `Legal`, `Unique` 12개 필드로 구성한다. `Age="50"`,
+`Goal="시장리스크 진단·대응안을 엔진으로 산출·검증"`, `Asset=50.0`(억 원),
+`Risk="균형형"`은 과제 시나리오 고정값이다. `Unique`는 항상
+`"고금리·강달러 충격"`으로 시작한다.
 
 ## 코퍼스 규격
 

@@ -1,7 +1,8 @@
 """리포트 품질 judge — 결정론적 품질 게이트.
 
-RISK_FORCE_JUDGE_FAIL 환경변수(정수 N)만큼 강제로 실패시켜
-judge 재작성 루프를 시연할 수 있다. N회 실패 후에는 실제 품질 게이트 결과를 따른다.
+state.demo_options의 force_judge_fail 값만큼 강제로 실패시켜 judge 재작성 루프를
+시연할 수 있다. 환경변수는 이전 호출 방식과의 하위 호환용으로만 읽는다.
+N회 실패 후에는 실제 품질 게이트 결과를 따른다.
 
 현재 단계에서는 외부 LLM을 호출하지 않는다. 지표·재현성 hash·설명·검증 인용의
 형태를 결정론적으로 점검해, CI와 로컬 스켈레톤 실행이 외부 키 없이도 재현 가능하게
@@ -128,7 +129,10 @@ def _failure_reasons(checks: list[dict]) -> list[str]:
 
 def judge_eval(state: RiskState) -> dict:
     retries = (state.get("judge_retries") or 0) + 1
-    force_fail_n = _safe_int_env(FORCE_FAIL_ENV)
+    demo_options = state.get("demo_options") or {}
+    force_fail_n = demo_options.get("force_judge_fail")
+    if not isinstance(force_fail_n, int) or isinstance(force_fail_n, bool):
+        force_fail_n = _safe_int_env(FORCE_FAIL_ENV)
     checks = _build_checks(state)
     score = _score(checks)
     failures = _failure_reasons(checks)
