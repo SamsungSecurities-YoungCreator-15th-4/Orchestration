@@ -30,7 +30,7 @@ TBD_MARKER = "[TBD"        # 미완성 방법론 문서 마커
 COLLECTION_NAME = "risk_corpus"
 DEFAULT_CORPUS_DIR = "corpus"
 DEFAULT_PERSIST_DIR = "data/chroma"
-CATEGORIES = ("house_view", "macro", "tax")
+CATEGORIES = ("house_view", "macro", "tax", "methodology")
 
 # 임베딩: Azure OpenAI text-embedding-3-small (전용 배포명은 .env에서 읽는다)
 EMBEDDING_MODEL = "text-embedding-3-small"
