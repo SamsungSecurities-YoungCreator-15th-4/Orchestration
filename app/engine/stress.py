@@ -41,8 +41,24 @@ SCENARIO_B_STRONG_USD = {
     },
 }
 
-# 기본 시나리오 세트(순서 고정) — 리포트에 A·B 나란히 표기.
-DEFAULT_SCENARIOS = [SCENARIO_A_HIGH_RATE, SCENARIO_B_STRONG_USD]
+# 시나리오 C — 코로나 충격: 팬데믹 유동성 쇼크 국면.
+# 주식 급락 + 유동성 경색, 채권은 안전자산 쏠림으로 상대적 방어(고금리와 대비되는 프로파일).
+SCENARIO_C_COVID = {
+    "name": "C_covid",
+    "description": "2020 코로나 팬데믹 급락 — 주식 급락·유동성 경색, 채권은 안전자산 쏠림으로 방어",
+    "reference": "2020-02~03 코로나 급락 국면 참조 — 스타일라이즈드(방향·크기 정합)",
+    "shocks": {
+        "domestic_equity": -0.30,
+        "global_equity": -0.25,
+        "domestic_bond": -0.03,
+        "global_bond": -0.01,
+        "alternatives": -0.02,
+        "cash": 0.0,
+    },
+}
+
+# 기본 시나리오 세트(순서 고정) — 리포트에 A·B·C 나란히 표기.
+DEFAULT_SCENARIOS = [SCENARIO_A_HIGH_RATE, SCENARIO_B_STRONG_USD, SCENARIO_C_COVID]
 
 
 def run_stress(portfolio: list[dict], scenario: dict | None = None) -> dict:
@@ -86,7 +102,7 @@ def run_stress(portfolio: list[dict], scenario: dict | None = None) -> dict:
 def run_all_stress(
     portfolio: list[dict], scenarios: list[dict] | None = None
 ) -> dict:
-    """기본 시나리오 세트(A 고금리 · B 강달러)를 모두 적용해 결과를 나란히 반환.
+    """기본 시나리오 세트(A 고금리 · B 강달러 · C 코로나)를 모두 적용해 결과를 나란히 반환.
 
     동일 포트폴리오·동일 시나리오 정의면 결과는 항상 동일하게 재현된다.
     """
