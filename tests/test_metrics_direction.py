@@ -25,7 +25,7 @@ from app.engine.metrics import (
 )
 from app.engine import returns as returns_mod
 from app.engine.returns import ASSET_CLASSES, _generate_dummy_returns, load_real_returns, load_returns
-from app.engine.stress import run_all_stress, SCENARIO_A_HIGH_RATE, SCENARIO_B_STRONG_USD
+from app.engine.stress import run_all_stress, SCENARIO_A_HIGH_RATE, SCENARIO_B_STRONG_USD, SCENARIO_C_COVID
 from app.nodes.var_engine import var_engine
 
 # 6자산군 더미 포트폴리오(총 50억) — load_inputs.py와 동일 구조.
@@ -78,10 +78,10 @@ def test_10d_var_gte_1d_var():
 
 
 # --- 스트레스 방향성 ---
-def test_stress_two_scenarios_present():
-    """스트레스는 A(고금리)·B(강달러) 2종을 나란히 산출한다."""
+def test_stress_three_scenarios_present():
+    """스트레스는 A(고금리)·B(강달러)·C(코로나) 3종을 나란히 산출한다."""
     res = run_all_stress(PORTFOLIO)
-    assert set(res.keys()) == {"A_high_rate", "B_strong_usd"}
+    assert set(res.keys()) == {"A_high_rate", "B_strong_usd", "C_covid"}
 
 
 def test_stress_loss_sign_is_positive():
@@ -685,3 +685,11 @@ def test_stress_shock_contract_locked():
     assert res["A_high_rate"]["loss_krw"] == 890_000_000.0
     assert res["B_strong_usd"]["loss_pct"] == 0.052
     assert res["B_strong_usd"]["loss_krw"] == 260_000_000.0
+    assert SCENARIO_C_COVID["shocks"] == {
+        "domestic_equity": -0.30, "global_equity": -0.25, "domestic_bond": -0.03,
+        "global_bond": -0.01, "alternatives": -0.02, "cash": 0.0,
+    }
+    assert res["C_covid"]["loss_pct"] == 0.136
+    assert res["C_covid"]["loss_krw"] == 680_000_000.0
+    # 손실 순서 A > C > B
+    assert res["A_high_rate"]["loss_krw"] > res["C_covid"]["loss_krw"] > res["B_strong_usd"]["loss_krw"]
