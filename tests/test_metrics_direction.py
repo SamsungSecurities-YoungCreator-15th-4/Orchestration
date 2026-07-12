@@ -724,6 +724,32 @@ def test_bootstrap_ci_low_le_high():
     assert ci["cvar_pct_low"] <= ci["cvar_pct_high"]
 
 
+# --- [리뷰 반영] 부트스트랩 입력값 방어적 유효성 검증 ---
+def test_bootstrap_ci_rejects_empty_returns():
+    with pytest.raises(ValueError):
+        bootstrap_var_cvar_ci(np.array([]), confidence=0.99, seed=42)
+
+
+def test_bootstrap_ci_rejects_invalid_confidence():
+    port_ret = _wave_returns(scale=0.01)
+    with pytest.raises(ValueError):
+        bootstrap_var_cvar_ci(port_ret, confidence=1.5, seed=42)
+    with pytest.raises(ValueError):
+        bootstrap_var_cvar_ci(port_ret, confidence=0.0, seed=42)
+
+
+def test_bootstrap_ci_rejects_invalid_ci_level():
+    port_ret = _wave_returns(scale=0.01)
+    with pytest.raises(ValueError):
+        bootstrap_var_cvar_ci(port_ret, ci_level=1.0, seed=42)
+
+
+def test_bootstrap_ci_rejects_non_positive_n_bootstrap():
+    port_ret = _wave_returns(scale=0.01)
+    with pytest.raises(ValueError):
+        bootstrap_var_cvar_ci(port_ret, n_bootstrap=0, seed=42)
+
+
 def test_bootstrap_ci_contains_point_estimate():
     """신뢰구간은 점추정치(historical_var/cvar)를 포함하는 게 일반적이다(90% CI 기준)."""
     df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")

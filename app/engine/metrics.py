@@ -160,6 +160,14 @@ def bootstrap_var_cvar_ci(
     """
     port_ret = np.asarray(port_ret, dtype=float)
     n = len(port_ret)
+    if n == 0:
+        raise ValueError("수익률 데이터가 비어 있어 부트스트랩을 수행할 수 없습니다.")
+    if not (0.0 < confidence < 1.0):
+        raise ValueError("신뢰수준(confidence)은 0과 1 사이의 값이어야 합니다.")
+    if not (0.0 < ci_level < 1.0):
+        raise ValueError("신뢰구간 수준(ci_level)은 0과 1 사이의 값이어야 합니다.")
+    if n_bootstrap <= 0:
+        raise ValueError("부트스트랩 반복 횟수(n_bootstrap)는 1 이상이어야 합니다.")
     rng = np.random.default_rng(seed)
 
     idx = rng.integers(0, n, size=(n_bootstrap, n))
