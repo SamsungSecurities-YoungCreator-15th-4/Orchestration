@@ -123,8 +123,9 @@ START
 
 RAG 근거 문서는 `corpus/`에 카테고리별로 둔다. 상세 목록은 [`corpus/manifest.md`](corpus/manifest.md) 참조.
 
-- 카테고리 3종: `house_view`(삼성증권 하우스뷰), `macro`(거시·통화정책), `tax`(세무).
-- 총 **19건** (house_view 6 · macro 7 · tax 6).
+- 카테고리 4종: `house_view`(삼성증권 하우스뷰), `macro`(거시·통화정책),
+  `tax`(세무), `methodology`(리스크 계량·스트레스 테스트 방법론).
+- 총 **21건** (house_view 6 · macro 7 · tax 6 · methodology 2).
 - **원문 PDF는 저작권상 로컬 전용**이며 git에 포함하지 않는다
   (`.gitignore: /corpus/**/*.pdf`, 단 `!/corpus/**/.gitkeep`로 폴더 구조는 유지).
 - git이 추적하는 것은 **폴더 구조(`.gitkeep`)와 `corpus/manifest.md`뿐**이다.
