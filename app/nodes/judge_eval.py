@@ -1,18 +1,23 @@
-"""리포트 품질 judge — 결정론적 품질 게이트.
+"""리포트 품질 judge — 기존 형태 검사와 6축 루브릭을 함께 실행한다.
 
 state.demo_options의 force_judge_fail 값만큼 강제로 실패시켜 judge 재작성 루프를
 시연할 수 있다. 환경변수는 이전 호출 방식과의 하위 호환용으로만 읽는다.
 N회 실패 후에는 실제 품질 게이트 결과를 따른다.
 
-현재 단계에서는 외부 LLM을 호출하지 않는다. 지표·재현성 hash·설명·검증 인용의
-형태를 결정론적으로 점검해, CI와 로컬 스켈레톤 실행이 외부 키 없이도 재현 가능하게
-동작하도록 한다.
+기존 형태 검사는 결정론적으로 유지하고, LLM은 설명 품질 판정에만 관여하며
+수치 계산 경로에는 진입하지 않는다.
 """
+from __future__ import annotations
+
+import json
 import os
 
+from app.judge.rubric import AXIS_NAMES, evaluate_rubric
 from app.state import RiskState
 
 FORCE_FAIL_ENV = "RISK_FORCE_JUDGE_FAIL"
+MAX_JUDGE_RETRIES = 2
+MANUAL_REVIEW_WARNING = "검증 미통과 — 수동검토 필요"
 
 
 def _safe_int_env(name: str, default: int = 0) -> int:
@@ -37,14 +42,15 @@ def _is_verified_citation(citation) -> bool:
 
 
 def _verified_citations(citations: list) -> list[dict]:
-    return [c for c in citations if _is_verified_citation(c)]
+    return [citation for citation in citations if _is_verified_citation(citation)]
 
 
 def _invalid_citations(citations: list) -> list[dict]:
-    return [c for c in citations if not _is_verified_citation(c)]
+    return [citation for citation in citations if not _is_verified_citation(citation)]
 
 
 def _build_checks(state: RiskState) -> list[dict]:
+    """기존 7개 형태 검사를 preflight로 보존한다."""
     run_config = state.get("run_config") or {}
     metrics = state.get("metrics") or {}
     explanations = state.get("explanations") or []
@@ -53,8 +59,9 @@ def _build_checks(state: RiskState) -> list[dict]:
     meta = metrics.get("meta") or {}
 
     explanation_texts = [
-        e.get("text", "") for e in explanations
-        if isinstance(e, dict) and e.get("topic") != "재작성 반영"
+        explanation.get("text", "")
+        for explanation in explanations
+        if isinstance(explanation, dict) and explanation.get("topic") != "재작성 반영"
     ]
     verified = _verified_citations(citations)
     invalid = _invalid_citations(citations)
@@ -81,7 +88,7 @@ def _build_checks(state: RiskState) -> list[dict]:
         },
         {
             "name": "explanations_have_text",
-            "passed": bool(explanation_texts) and all(_has_text(t) for t in explanation_texts),
+            "passed": bool(explanation_texts) and all(_has_text(text) for text in explanation_texts),
             "required": True,
             "detail": "주요 설명 문장 텍스트 존재",
         },
@@ -106,67 +113,133 @@ def _build_checks(state: RiskState) -> list[dict]:
     ]
 
 
+def _expected_dates(state: RiskState) -> set[str]:
+    run_config = state.get("run_config") or {}
+    metrics = state.get("metrics") or {}
+    data_period = (metrics.get("meta") or {}).get("data_period") or {}
+    return {
+        str(value)
+        for value in (run_config.get("as_of_date"), data_period.get("end"))
+        if value
+    }
+
+
+def _rubric_checks(state: RiskState, llm) -> tuple[list[dict], dict, list[str]]:
+    run_config = state.get("run_config") or {}
+    results, manual_flags = evaluate_rubric(
+        explanations=state.get("explanations") or [],
+        citations=state.get("citations") or [],
+        metrics=state.get("metrics") or {},
+        strict_citation_gate=run_config.get("strict_citation_gate") is True,
+        expected_dates=_expected_dates(state),
+        llm=llm,
+    )
+    rubric = {
+        name: {"passed": results[name][0], "reason": results[name][1]}
+        for name in AXIS_NAMES
+    }
+    checks = [
+        {
+            "name": name,
+            "passed": result[0],
+            "required": True,
+            "detail": result[1],
+        }
+        for name, result in results.items()
+    ]
+    return checks, rubric, manual_flags
+
+
 def _score(checks: list[dict]) -> float:
     if not checks:
         return 0.0
-    return round(sum(1 for c in checks if c["passed"]) / len(checks), 2)
+    return round(sum(1 for check in checks if check["passed"]) / len(checks), 2)
 
 
 def _manual_review_flags(checks: list[dict]) -> list[str]:
-    flags: list[str] = []
-    for check in checks:
-        if not check["passed"] and not check["required"]:
-            flags.append(check["detail"])
-    return flags
-
-
-def _failure_reasons(checks: list[dict]) -> list[str]:
     return [
-        check["detail"] for check in checks
+        check["detail"]
+        for check in checks
+        if not check["passed"] and not check["required"]
+    ]
+
+
+def _failure_items(checks: list[dict]) -> list[dict]:
+    return [
+        {"axis": check["name"], "reason": check["detail"]}
+        for check in checks
         if check["required"] and not check["passed"]
     ]
 
 
-def judge_eval(state: RiskState) -> dict:
+def _feedback(retries: int, failures: list[dict]) -> str:
+    return json.dumps(
+        {
+            "action": "rag_cite_rewrite",
+            "attempt": retries,
+            "failed_axes": failures,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def _get_default_llm():
+    try:
+        from app.llm.client import get_llm
+
+        return get_llm(temperature=0.0)
+    except Exception:
+        return None
+
+
+def judge_eval(state: RiskState, *, llm=None) -> dict:
+    """형태 검사와 6축 루브릭을 집계한다. llm은 테스트 주입 가능하다."""
     retries = (state.get("judge_retries") or 0) + 1
     demo_options = state.get("demo_options") or {}
     force_fail_n = demo_options.get("force_judge_fail")
     if not isinstance(force_fail_n, int) or isinstance(force_fail_n, bool):
         force_fail_n = _safe_int_env(FORCE_FAIL_ENV)
-    checks = _build_checks(state)
+    judge_llm = llm if llm is not None else _get_default_llm()
+
+    preflight_checks = _build_checks(state)
+    rubric_checks, rubric, rubric_manual_flags = _rubric_checks(state, judge_llm)
+    checks = preflight_checks + rubric_checks
     score = _score(checks)
-    failures = _failure_reasons(checks)
-    manual_review_flags = _manual_review_flags(checks)
+    failures = _failure_items(checks)
+    manual_review_flags = list(
+        dict.fromkeys(_manual_review_flags(preflight_checks) + rubric_manual_flags)
+    )
 
     if retries <= force_fail_n:
-        reason = f"[강제실패 {retries}/{force_fail_n}] judge 재작성 루프 시연"
-        return {
-            "judge_retries": retries,
-            "judge": {
-                "passed": False,
-                "score": min(score, 0.4),
-                "reason": reason,
-                "checks": checks,
-                "manual_review_flags": manual_review_flags,
-            },
-            "judge_feedback": reason,
-        }
+        failures = [
+            {
+                "axis": "forced_failure",
+                "reason": f"judge 재작성 루프 시연 {retries}/{force_fail_n}",
+            }
+        ]
 
     passed = not failures
+    if not passed and retries >= MAX_JUDGE_RETRIES:
+        manual_review_flags.append(MANUAL_REVIEW_WARNING)
+        manual_review_flags = list(dict.fromkeys(manual_review_flags))
+
     reason = (
         "필수 품질 점검 통과"
         if passed
-        else "필수 품질 점검 실패: " + "; ".join(failures)
+        else "필수 품질 점검 실패: "
+        + "; ".join(f"{item['axis']}={item['reason']}" for item in failures)
     )
-    feedback = "" if passed else reason
+    feedback = "" if passed else _feedback(retries, failures)
 
     return {
         "judge_retries": retries,
         "judge": {
             "passed": passed,
-            "score": score,
+            "score": score if passed else min(score, 0.4) if retries <= force_fail_n else score,
             "reason": reason,
             "checks": checks,
+            "rubric": rubric,
             "manual_review_flags": manual_review_flags,
         },
         "judge_feedback": feedback,

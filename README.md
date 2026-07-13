@@ -25,6 +25,18 @@ python scripts/run_graph.py --auto-approve
 pytest
 ```
 
+gpt-4o IPS 추출의 20개 회귀 사례 정확도와 동일 입력 반복 일치율은 Azure 키가 있는
+환경에서 다음 명령으로 별도 측정한다.
+
+```bash
+python scripts/evaluate_ips_extraction.py --repeats 3
+```
+
+IPS 충돌·예외 승인 기준은 [`docs/ips_conflict_policy.md`](docs/ips_conflict_policy.md)에
+공식 근거, 내부 임계값, `draft → reviewed → locked` 계약과 함께 기록한다.
+20사례×3회 실제 평가 결과는
+[`docs/ips_extraction_evaluation.md`](docs/ips_extraction_evaluation.md)에 기록한다.
+
 ## 브랜치 규칙
 - `main` ← `develop` ← `feature/*`
 - 기능 작업은 `feature/<이름>` 브랜치에서 수행 후 `develop`으로 PR

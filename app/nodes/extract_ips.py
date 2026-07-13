@@ -1,11 +1,12 @@
 """고객 자연어 상담에서 IPS를 추출하는 LangChain Structured Output 노드."""
 import os
 
-from app.llm.extract_ips_chain import extract_ips_profile
+from app.llm.extract_ips_chain import extract_ips_profile_with_meta
 from app.state import IPSProfile, RiskState
+from app.utils.hashing import sha256_of_dict
 
 
-def _offline_profile() -> tuple[IPSProfile, float]:
+def _offline_profile() -> tuple[IPSProfile, float, dict]:
     """외부 키 없는 CI graph smoke용 결정론 IPS 입력."""
     return (
         IPSProfile(
@@ -18,16 +19,22 @@ def _offline_profile() -> tuple[IPSProfile, float]:
             Legal="해당 사항 없음",
             Unique="자영업 사업소득 변동성 존재",
         ),
-        500_000_000,
+        250_000_000,
+        {
+            "model": "offline-deterministic",
+            "temperature": 0.0,
+            "seed": 42,
+            "prompt_version": "ips-extract-v2",
+        },
     )
 
 
 def extract_ips(state: RiskState, *, chain=None) -> dict:
     demo_options = state.get("demo_options") or {}
     if demo_options.get("offline") is True:
-        profile, liquidity_required_krw = _offline_profile()
+        profile, liquidity_required_krw, extraction_meta = _offline_profile()
     else:
-        profile, liquidity_required_krw = extract_ips_profile(
+        profile, liquidity_required_krw, extraction_meta = extract_ips_profile_with_meta(
             state.get("raw_input") or "",
             chain=chain,
         )
@@ -40,9 +47,20 @@ def extract_ips(state: RiskState, *, chain=None) -> dict:
     if force_conflict:
         liquidity_required_krw = 2_000_000_000
 
+    extraction_meta = dict(extraction_meta)
+    extraction_meta.pop("extraction_hash", None)
+    extraction_meta["output_hash"] = sha256_of_dict(
+        {
+            "ips": profile.model_dump(),
+            "liquidity_required_krw": liquidity_required_krw,
+        }
+    )
+    extraction_meta["extraction_hash"] = sha256_of_dict(extraction_meta)
+
     out: dict = {
         "ips": profile.model_dump(),
         "liquidity_required_krw": liquidity_required_krw,
+        "ips_extraction_meta": extraction_meta,
     }
     # 충돌로 인한 재추출인 경우 재시도 횟수 기록
     if state.get("conflicts"):

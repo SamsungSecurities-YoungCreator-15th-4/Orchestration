@@ -100,4 +100,9 @@ def load_inputs(state: RiskState) -> dict:
                 else "고정 수식 더미 데이터(오프라인 개발·테스트용)"
             ),
         },
+        "approval": {
+            "status": "draft",
+            "created_as_of": run_config.get("as_of_date"),
+            "scope": "risk_calculation_only",
+        },
     }

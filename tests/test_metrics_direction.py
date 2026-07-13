@@ -809,3 +809,18 @@ def test_var_engine_uses_config_seed_for_confidence_interval(tmp_path, monkeypat
     }
     result = var_engine(state)
     assert result["metrics"]["meta"]["seed"] == 7
+
+
+def test_stress_band_range_locked():
+    """[range 밴드] 충격밴드 low/high도 확정 계약값이므로 정확히 고정한다."""
+    res = run_all_stress(PORTFOLIO)
+    assert res["A_high_rate"]["loss_pct_low"] == 0.13955
+    assert res["A_high_rate"]["loss_pct_high"] == 0.21645
+    assert res["A_high_rate"]["loss_krw_low"] == 697_750_000.0
+    assert res["A_high_rate"]["loss_krw_high"] == 1_082_250_000.0
+    assert res["B_strong_usd"]["loss_pct_low"] == 0.0405
+    assert res["B_strong_usd"]["loss_pct_high"] == 0.0635
+    assert res["C_covid"]["loss_pct_low"] == 0.103
+    assert res["C_covid"]["loss_pct_high"] == 0.169
+    for name in res:
+        assert res[name]["loss_krw_low"] <= res[name]["loss_krw"] <= res[name]["loss_krw_high"]

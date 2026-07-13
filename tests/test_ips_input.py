@@ -11,7 +11,7 @@ from app.nodes.load_inputs import (
     load_inputs,
     portfolio_from_percentages,
 )
-from app.state import FIXED_GOAL, IPSProfile, UNIQUE_PREFIX
+from app.state import FIXED_GOAL, FIXED_JOB, IPSProfile, UNIQUE_PREFIX
 
 
 class FakeStructuredChain:
@@ -42,6 +42,7 @@ def test_ips_fixed_fields_and_unique_prefix_are_enforced():
         "Risk", "Time", "Tax", "Liquidity", "Legal", "Unique",
     ]
     assert result["Age"] == "50"
+    assert result["Job"] == FIXED_JOB
     assert result["Goal"] == FIXED_GOAL
     assert result["Asset"] == 50.0
     assert result["Risk"] == "균형형"
@@ -54,6 +55,8 @@ def test_fixed_ips_values_cannot_be_changed():
         IPSProfile(Age="65")
     with pytest.raises(ValidationError):
         IPSProfile(Risk="공격형")
+    with pytest.raises(ValidationError):
+        IPSProfile(Job="회사원")
 
 
 def test_extract_node_stores_public_ips_and_internal_liquidity_amount(monkeypatch):
@@ -68,13 +71,15 @@ def test_extract_node_offline_mode_does_not_require_llm(monkeypatch):
     def fail_if_called(*args, **kwargs):
         raise AssertionError("offline mode must not call the LLM")
 
-    monkeypatch.setattr("app.nodes.extract_ips.extract_ips_profile", fail_if_called)
+    monkeypatch.setattr(
+        "app.nodes.extract_ips.extract_ips_profile_with_meta", fail_if_called
+    )
     result = extract_ips(
         {"raw_input": "고객 상담", "demo_options": {"offline": True}}
     )
 
     assert result["ips"]["Job"] == "자영업자"
-    assert result["liquidity_required_krw"] == 500_000_000
+    assert result["liquidity_required_krw"] == 250_000_000
 
 
 def test_extract_conflict_demo_option_is_isolated_in_state(monkeypatch):
@@ -102,8 +107,75 @@ def test_new_ips_liquidity_amount_uses_existing_30_percent_conflict_rule():
         }
     )
 
-    assert result["conflicts"][0]["rule"] == "liquidity_over_30pct"
-    assert result["conflicts"][0]["limit_krw"] == 1_500_000_000
+    over_limit = next(
+        conflict
+        for conflict in result["conflicts"]
+        if conflict["rule"] == "liquidity_over_30pct"
+    )
+    assert over_limit["severity"] == "review"
+    assert over_limit["limit_krw"] == 1_500_000_000
+    assert result["conflict_policy"]["policy_hash"]
+
+
+def test_legacy_liquidity_none_amount_is_treated_as_zero():
+    portfolio = portfolio_from_percentages(
+        {
+            asset_class: value
+            for (asset_class, _), value in zip(
+                ASSET_DEFINITIONS,
+                [25, 20, 25, 15, 10, 5],
+            )
+        }
+    )
+    result = conflict_check(
+        {
+            "ips": {
+                "Time": 10,
+                "Risk": "균형형",
+                "Liquidity": "중간",
+                "liquidity_needs": [{"amount_krw": None}],
+            },
+            "portfolio": portfolio,
+        }
+    )
+
+    assert result["conflicts"] == []
+
+
+def test_conflict_policy_is_cached_after_first_load():
+    import app.nodes.conflict_check as conflict_module
+
+    conflict_module._load_policy.cache_clear()
+    first = conflict_module._load_policy()
+    second = conflict_module._load_policy()
+
+    assert first is second
+    assert conflict_module._load_policy.cache_info().misses == 1
+    assert conflict_module._load_policy.cache_info().hits == 1
+
+
+def test_conflict_check_blocks_missing_time_and_allows_review_for_concentration():
+    portfolio = portfolio_from_percentages(
+        {
+            asset_class: value
+            for (asset_class, _), value in zip(
+                ASSET_DEFINITIONS,
+                [70, 0, 10, 10, 5, 5],
+            )
+        }
+    )
+    result = conflict_check(
+        {
+            "ips": {"Time": 0, "Risk": "균형형", "Liquidity": "낮음"},
+            "portfolio": portfolio,
+            "liquidity_required_krw": 0,
+        }
+    )
+    by_rule = {conflict["rule"]: conflict for conflict in result["conflicts"]}
+    assert by_rule["time_horizon_missing"]["severity"] == "block"
+    assert by_rule["time_horizon_missing"]["exception_allowed"] is False
+    assert by_rule["balanced_risky_assets_over_limit"]["severity"] == "review"
+    assert by_rule["single_risky_asset_concentration"]["exception_allowed"] is True
 
 
 def test_portfolio_percentages_convert_to_50_eok_contract():

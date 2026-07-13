@@ -7,6 +7,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.rag.ingest import (
+    CATEGORIES,
     CHUNK_OVERLAP,
     CHUNK_SIZE,
     EMBED_BATCH_SIZE,
@@ -146,6 +147,22 @@ def test_corrupted_pdf_skipped_not_fatal(tmp_path, monkeypatch):
     monkeypatch.setattr(ingest, "load_pdf_text", fake_load)
     loaded = ingest.collect_corpus_texts(corpus_dir=str(tmp_path))
     assert [(name, cat) for name, _text, cat in loaded] == [("good.pdf", "macro")]
+
+
+def test_methodology_category_is_collected(tmp_path, monkeypatch):
+    import app.rag.ingest as ingest
+
+    methodology_dir = tmp_path / "methodology"
+    methodology_dir.mkdir()
+    (methodology_dir / "methodology_var_cvar_2026.pdf").write_bytes(b"fake")
+    monkeypatch.setattr(ingest, "load_pdf_text", lambda _path: "완성된 방법론 본문")
+
+    loaded = ingest.collect_corpus_texts(corpus_dir=str(tmp_path))
+
+    assert "methodology" in CATEGORIES
+    assert loaded == [
+        ("methodology_var_cvar_2026.pdf", "완성된 방법론 본문", "methodology")
+    ]
 
 
 def test_add_chunks_batches_are_limited_to_embed_batch_size():

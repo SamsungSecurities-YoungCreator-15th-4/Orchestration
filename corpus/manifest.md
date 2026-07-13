@@ -4,7 +4,7 @@
 > 이 매니페스트는 문서 목록일 뿐 원문이 아니므로 git에 커밋 가능하다.
 
 - 출처: 6월 과제(supervisor) `backend/data/`의 RAG 문서를 카테고리 구조 그대로 이관
-- 총 문서 수: **19건** (house_view 6 · macro 7 · tax 6)
+- 총 문서 수: **21건** (house_view 6 · macro 7 · tax 6 · methodology 2)
 
 ## house_view — 삼성증권 하우스뷰 (시장·자산전략)
 
@@ -39,6 +39,13 @@
 | nts_taxguide_2026_vol1.pdf | 국세청 (세금가이드 1권, 2026) | 18 MB |
 | nts_taxguide_2026_vol2.pdf | 국세청 (세금가이드 2권, 2026) | 5.9 MB |
 | nts_taxguide_2026_vol2_errata.pdf | 국세청 (세금가이드 2권 정오표, 2026) | 159 KB |
+
+## methodology — 리스크 계량·스트레스 테스트 방법론
+
+| 파일명 | 발행기관(파일명 추정) | 크기 |
+| --- | --- | --- |
+| methodology_var_cvar_2026.pdf | 삼성증권 영크리에이터 15기 4조 (리스크 계량 방법론 — VaR·CVaR) | 68 KB |
+| methodology_stress_2026.pdf | 삼성증권 영크리에이터 15기 4조 (스트레스 테스트 방법론) | 88 KB |
 
 ---
 
