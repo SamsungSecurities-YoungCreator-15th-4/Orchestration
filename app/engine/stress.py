@@ -60,6 +60,18 @@ SCENARIO_C_COVID = {
 # 기본 시나리오 세트(순서 고정) — 리포트에 A·B·C 나란히 표기.
 DEFAULT_SCENARIOS = [SCENARIO_A_HIGH_RATE, SCENARIO_B_STRONG_USD, SCENARIO_C_COVID]
 
+# 자산군별 상대 충격 밴드 — range(완화/심화) 표시용. 변동성 순서(주식>대체>채권) 반영.
+# 밴드는 스타일라이즈드 충격의 불확실성을 나타내는 표시(presentation)용이며,
+# 점추정치(loss_krw/loss_pct)는 결정론 확정값 그대로다(회귀 테스트로 고정).
+SHOCK_BAND = {
+    "domestic_equity": 0.25,
+    "global_equity": 0.25,
+    "domestic_bond": 0.15,
+    "global_bond": 0.15,
+    "alternatives": 0.20,
+    "cash": 0.0,
+}
+
 
 def run_stress(portfolio: list[dict], scenario: dict | None = None) -> dict:
     """단일 시나리오의 자산군별 고정 충격을 적용해 포트폴리오 손실액/손실률 계산.
@@ -81,20 +93,30 @@ def run_stress(portfolio: list[dict], scenario: dict | None = None) -> dict:
 
     total_value = sum(p["value_krw"] for p in portfolio)
     loss = 0.0  # 양수 = 손실
+    loss_low = 0.0   # 완화(충격 ×(1-band)) → 손실 하한
+    loss_high = 0.0  # 심화(충격 ×(1+band)) → 손실 상한
     # 같은 자산군이 여러 종목으로 들어와도 덮어쓰지 않고 합산한다.
     by_asset: dict[str, float] = {}
     for p in portfolio:
         asset_class = p["asset_class"]
+        shock = shocks[asset_class]
         # shock이 음수(하락)면 손실은 양수가 된다.
-        asset_loss = -(p["value_krw"] * shocks[asset_class])
+        asset_loss = -(p["value_krw"] * shock)
         by_asset[asset_class] = by_asset.get(asset_class, 0.0) + asset_loss
         loss += asset_loss
+        band = SHOCK_BAND.get(asset_class, 0.0)
+        loss_low += -(p["value_krw"] * shock * (1 - band))
+        loss_high += -(p["value_krw"] * shock * (1 + band))
     return {
         "scenario": scenario["name"],
         "description": scenario["description"],
         "reference": scenario.get("reference"),
         "loss_krw": round(loss, 2),
         "loss_pct": round(loss / total_value, 8) if total_value else 0.0,
+        "loss_krw_low": round(loss_low, 2),
+        "loss_krw_high": round(loss_high, 2),
+        "loss_pct_low": round(loss_low / total_value, 8) if total_value else 0.0,
+        "loss_pct_high": round(loss_high / total_value, 8) if total_value else 0.0,
         "by_asset": {k: round(v, 2) for k, v in by_asset.items()},
     }
 
