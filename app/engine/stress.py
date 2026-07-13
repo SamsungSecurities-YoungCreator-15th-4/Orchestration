@@ -104,9 +104,11 @@ def run_stress(portfolio: list[dict], scenario: dict | None = None) -> dict:
         asset_loss = -(p["value_krw"] * shock)
         by_asset[asset_class] = by_asset.get(asset_class, 0.0) + asset_loss
         loss += asset_loss
-        band = SHOCK_BAND.get(asset_class, 0.0)
-        loss_low += -(p["value_krw"] * shock * (1 - band))
-        loss_high += -(p["value_krw"] * shock * (1 + band))
+        band = SHOCK_BAND[asset_class]
+        bound1 = -(p["value_krw"] * shock * (1 - band))
+        bound2 = -(p["value_krw"] * shock * (1 + band))
+        loss_low += min(bound1, bound2)
+        loss_high += max(bound1, bound2)
     return {
         "scenario": scenario["name"],
         "description": scenario["description"],
