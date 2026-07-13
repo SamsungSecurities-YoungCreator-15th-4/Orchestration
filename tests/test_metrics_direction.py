@@ -707,12 +707,21 @@ def test_bootstrap_ci_reproducible():
 
 
 def test_bootstrap_ci_different_seed_can_differ():
-    """시드가 다르면 리샘플링 결과가 달라질 수 있다(랜덤성이 실제로 작동하는지 확인)."""
+    """시드가 다르면 리샘플링 결과가 달라질 수 있다(랜덤성이 실제로 작동하는지 확인).
+
+    [리뷰 반영] 반환 딕셔너리 자체에 "seed" 필드가 들어있어서, 딕셔너리
+    전체를 비교하면 실제 계산된 경계값(var/cvar low/high)이 우연히
+    똑같아도(예: RNG가 seed를 무시하는 버그가 있어도) seed 값 차이만으로
+    항상 통과해버린다. 실제 산출된 경계값만 비교해야 랜덤성이 진짜
+    작동하는지 검증된다.
+    """
     df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
     port_ret = portfolio_returns(df, PORTFOLIO)
     ci_a = bootstrap_var_cvar_ci(port_ret, confidence=0.99, seed=1)
     ci_b = bootstrap_var_cvar_ci(port_ret, confidence=0.99, seed=2)
-    assert ci_a != ci_b
+    bounds_a = {k: v for k, v in ci_a.items() if k not in ("seed", "ci_level", "n_bootstrap")}
+    bounds_b = {k: v for k, v in ci_b.items() if k not in ("seed", "ci_level", "n_bootstrap")}
+    assert bounds_a != bounds_b
 
 
 def test_bootstrap_ci_low_le_high():
