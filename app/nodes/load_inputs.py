@@ -82,13 +82,18 @@ def load_inputs(state: RiskState) -> dict:
     if demo_options.get("offline") is True:
         run_config["data_source"] = "dummy"
     run_config["config_hash"] = sha256_of_dict(run_config)
+    incoming_run_config = state.get("run_config") or {}
+    if isinstance(incoming_run_config, dict):
+        observability = incoming_run_config.get("observability")
+        if isinstance(observability, dict):
+            run_config["observability"] = dict(observability)
 
     raw_input = state["raw_input"] if "raw_input" in state else SAMPLE_RAW_INPUT
     portfolio = state["portfolio"] if "portfolio" in state else DUMMY_PORTFOLIO
 
     return {
         "run_config": run_config,
-        "trace_id": f"run-{run_config['config_hash'][:12]}",
+        "trace_id": state.get("trace_id") or f"run-{run_config['config_hash'][:12]}",
         "raw_input": raw_input,
         "portfolio": [dict(item) for item in portfolio],
         "market_data_ref": {

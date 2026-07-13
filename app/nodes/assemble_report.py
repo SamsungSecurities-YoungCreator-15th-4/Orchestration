@@ -204,6 +204,48 @@ def _warnings(state: RiskState, evidence: dict) -> list[str]:
     return list(dict.fromkeys(warnings))
 
 
+def _audit_summary(state: RiskState) -> dict:
+    """State에 누적된 모델·프롬프트 감사를 리포트용으로 정규화한다."""
+    run_config = state.get("run_config") or {}
+    raw_observability = run_config.get("observability")
+    observability = raw_observability if isinstance(raw_observability, dict) else {}
+    raw_audit = run_config.get("audit")
+    audit = raw_audit if isinstance(raw_audit, dict) else {}
+    raw_llm_audit = audit.get("llm")
+    llm_audit = raw_llm_audit if isinstance(raw_llm_audit, dict) else {}
+    extraction = state.get("ips_extraction_meta") or {}
+
+    model_versions = {
+        "extract_ips": {
+            "deployment": extraction.get("deployment"),
+            "model": extraction.get("response_model") or extraction.get("model"),
+            "api_version": extraction.get("api_version"),
+        }
+    }
+    prompt_hashes = {"extract_ips": extraction.get("prompt_hash")}
+    for component in ("rag_cite", "judge_eval"):
+        raw_component_audit = llm_audit.get(component)
+        component_audit = raw_component_audit if isinstance(raw_component_audit, dict) else {}
+        raw_latest = component_audit.get("latest")
+        latest = raw_latest if isinstance(raw_latest, dict) else {}
+        raw_prompt_hash = latest.get("prompt_hash")
+        prompt_hash = raw_prompt_hash if isinstance(raw_prompt_hash, dict) else {}
+        model_versions[component] = latest.get("model_version") or {
+            "deployment": None,
+            "model": None,
+            "api_version": None,
+        }
+        prompt_hashes[component] = prompt_hash.get("aggregate_sha256")
+
+    return {
+        "trace_id": state.get("trace_id"),
+        "langsmith_trace_url": observability.get("langsmith_trace_url"),
+        "langsmith_project": observability.get("langsmith_project"),
+        "model_versions": model_versions,
+        "prompt_hashes": prompt_hashes,
+    }
+
+
 def assemble_report(state: RiskState) -> dict:
     metrics = state.get("metrics") or {}
     meta = metrics.get("meta") or {}
@@ -213,6 +255,7 @@ def assemble_report(state: RiskState) -> dict:
     evidence = _evidence_summary(citations)
     judge = state.get("judge") or {}
     warnings = _warnings(state, evidence)
+    audit_summary = _audit_summary(state)
     report = {
         "title": "재현가능·설명가능 리스크 리포트",
         "as_of_date": run_config.get("as_of_date"),
@@ -240,6 +283,7 @@ def assemble_report(state: RiskState) -> dict:
             "judge_passed": judge.get("passed"),
             "strict_citation_gate": run_config.get("strict_citation_gate") is True,
             "manual_review_required": bool(warnings),
+            **audit_summary,
         },
         "reproducibility": {
             "as_of_date": run_config.get("as_of_date"),
