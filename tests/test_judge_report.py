@@ -1,4 +1,5 @@
 """judge_eval·assemble_report B 파트 단위 테스트."""
+import json
 import os
 import sys
 from pathlib import Path
@@ -41,7 +42,14 @@ BASE_STATE = {
         },
     },
     "explanations": [
-        {"topic": "VaR 해석", "text": "VaR 설명", "revision": 0},
+        {
+            "topic": "VaR 해석",
+            "text": (
+                "기준일 2026-06-30의 VaR 설명입니다. 과거 데이터 기반 추정치이며 "
+                "투자 권유가 아니고 원금 또는 수익을 보장하지 않습니다."
+            ),
+            "revision": 0,
+        },
         {"topic": "스트레스 시나리오", "text": "스트레스 설명", "revision": 0},
     ],
     "citations": [
@@ -51,14 +59,28 @@ BASE_STATE = {
             "source": "doc.pdf",
             "chunk_id": "doc.pdf::0001",
             "verified": True,
+            "extra": {"chunk_text": "VaR 설명과 스트레스 설명의 근거 문장"},
         }
     ],
 }
 
 
+class _PassingJudgeLLM:
+    def invoke(self, prompt: str):
+        axis = "hallucination" if "판정 축: hallucination" in prompt else "false_precision"
+        return json.dumps(
+            {"passed": True, "reason": f"{axis} 검증 통과"},
+            ensure_ascii=False,
+        )
+
+
+def _judge(state: dict) -> dict:
+    return judge_eval(state, llm=_PassingJudgeLLM())
+
+
 def test_judge_passes_required_checks_with_verified_citation(monkeypatch):
     monkeypatch.delenv("RISK_FORCE_JUDGE_FAIL", raising=False)
-    out = judge_eval(BASE_STATE)
+    out = _judge(BASE_STATE)
 
     assert out["judge_retries"] == 1
     assert out["judge"]["passed"] is True
@@ -71,11 +93,12 @@ def test_judge_fails_when_computation_hash_missing(monkeypatch):
     monkeypatch.delenv("RISK_FORCE_JUDGE_FAIL", raising=False)
     state = {**BASE_STATE, "metrics": {**BASE_STATE["metrics"], "meta": {}}}
 
-    out = judge_eval(state)
+    out = _judge(state)
 
     assert out["judge"]["passed"] is False
     assert "computation_hash" in out["judge"]["reason"]
-    assert out["judge_feedback"] == out["judge"]["reason"]
+    feedback = json.loads(out["judge_feedback"])
+    assert feedback["failed_axes"][0]["axis"] == "computation_hash_present"
 
 
 def test_judge_rejects_unverified_citation(monkeypatch):
@@ -87,7 +110,7 @@ def test_judge_rejects_unverified_citation(monkeypatch):
         ],
     }
 
-    out = judge_eval(state)
+    out = _judge(state)
 
     assert out["judge"]["passed"] is False
     assert "인용" in out["judge"]["reason"]
@@ -96,11 +119,11 @@ def test_judge_rejects_unverified_citation(monkeypatch):
 def test_judge_force_fail_env_still_demonstrates_loop(monkeypatch):
     monkeypatch.setenv("RISK_FORCE_JUDGE_FAIL", "1")
 
-    first = judge_eval(BASE_STATE)
-    second = judge_eval({**BASE_STATE, "judge_retries": 1})
+    first = _judge(BASE_STATE)
+    second = _judge({**BASE_STATE, "judge_retries": 1})
 
     assert first["judge"]["passed"] is False
-    assert "[강제실패 1/1]" in first["judge_feedback"]
+    assert json.loads(first["judge_feedback"])["failed_axes"][0]["axis"] == "forced_failure"
     assert second["judge"]["passed"] is True
 
 
@@ -108,17 +131,17 @@ def test_judge_force_fail_isolated_in_state(monkeypatch):
     monkeypatch.delenv("RISK_FORCE_JUDGE_FAIL", raising=False)
     state = {**BASE_STATE, "demo_options": {"force_judge_fail": 1}}
 
-    first = judge_eval(state)
-    second = judge_eval({**state, "judge_retries": 1})
+    first = _judge(state)
+    second = _judge({**state, "judge_retries": 1})
 
     assert first["judge"]["passed"] is False
-    assert "[강제실패 1/1]" in first["judge_feedback"]
+    assert json.loads(first["judge_feedback"])["failed_axes"][0]["axis"] == "forced_failure"
     assert second["judge"]["passed"] is True
 
 
 def test_judge_empty_citations_passes_with_manual_review_flag(monkeypatch):
     monkeypatch.delenv("RISK_FORCE_JUDGE_FAIL", raising=False)
-    out = judge_eval({**BASE_STATE, "citations": []})
+    out = _judge({**BASE_STATE, "citations": []})
 
     assert out["judge"]["passed"] is True
     assert out["judge"]["score"] < 1.0
@@ -136,7 +159,7 @@ def test_judge_strict_citation_gate_rejects_empty_citations(monkeypatch):
         "citations": [],
     }
 
-    out = judge_eval(state)
+    out = _judge(state)
     citation_check = next(
         check
         for check in out["judge"]["checks"]
@@ -147,14 +170,14 @@ def test_judge_strict_citation_gate_rejects_empty_citations(monkeypatch):
     assert citation_check["required"] is True
     assert "검증 통과 인용 0건" in out["judge"]["reason"]
     assert out["judge"]["manual_review_flags"] == []
-    assert out["judge_feedback"] == out["judge"]["reason"]
+    assert json.loads(out["judge_feedback"])["failed_axes"]
     report = assemble_report({**state, **out})["report"]
     assert report["governance"]["strict_citation_gate"] is True
     assert report["governance"]["manual_review_required"] is True
 
 
 def test_assemble_report_adds_summary_evidence_governance():
-    judged = judge_eval(BASE_STATE)
+    judged = _judge(BASE_STATE)
     state = {**BASE_STATE, **judged}
 
     report = assemble_report(state)["report"]
@@ -287,7 +310,7 @@ def test_no_force_fail_env_leaked(monkeypatch):
 
 def test_assemble_report_is_deterministic_for_same_state():
     """같은 State를 반복 실행해도 완전히 동일한 리포트가 나와야 한다(재현성 원칙)."""
-    judged = judge_eval(BASE_STATE)
+    judged = _judge(BASE_STATE)
     state = {**BASE_STATE, **judged}
 
     report_first = assemble_report(state)["report"]

@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from app.nodes.judge_eval import judge_eval
 from app.nodes.rag_cite import parse_candidates, rag_cite
 
 REAL_SENTENCE = "스트레스 테스트는 역사적 VaR가 포착하지 못하는 꼬리 위험을 보완한다."
@@ -60,8 +61,20 @@ class _FakeLLM:
         )
 
 
+class _PassingJudgeLLM:
+    def invoke(self, prompt: str):
+        return json.dumps(
+            {"passed": True, "reason": "근거·정밀도 검증 통과"},
+            ensure_ascii=False,
+        )
+
+
 def test_only_verified_citations_recorded():
-    state = {"metrics": {"var": {"0.99": 1.23}}, "judge_retries": 0}
+    state = {
+        "run_config": {"as_of_date": "2026-07-03"},
+        "metrics": {"var": {"0.99": 1.23}},
+        "judge_retries": 0,
+    }
     out = rag_cite(state, llm=_FakeLLM(), retriever=_FakeRetriever())
 
     citations = out["citations"]
@@ -69,6 +82,34 @@ def test_only_verified_citations_recorded():
     assert citations[0]["quote"] == REAL_SENTENCE
     assert citations[0]["verified"] is True
     assert citations[0]["chunk_id"] == "doc_b.pdf::0003"
+    assert citations[0]["extra"]["chunk_text"] == REAL_SENTENCE
+    disclaimer = next(e for e in out["explanations"] if e["topic"] == "기준일 및 유의사항")
+    assert "2026-07-03" in disclaimer["text"]
+    assert "보장하지 않습니다" in disclaimer["text"]
+
+
+def test_rag_explanations_pass_judge_e2e_with_fake_llms():
+    state = {
+        "run_config": {
+            "as_of_date": "2026-07-03",
+            "strict_citation_gate": True,
+        },
+        "approval": {"status": "locked"},
+        "metrics": {
+            "confidence": 0.99,
+            "horizons": {"1d": {"var_krw": 30_000_000}},
+            "meta": {
+                "computation_hash": "metric-hash",
+                "data_period": {"end": "2026-07-03"},
+            },
+        },
+        "judge_retries": 0,
+    }
+    rag_out = rag_cite(state, llm=_FakeLLM(), retriever=_FakeRetriever())
+    judged = judge_eval({**state, **rag_out}, llm=_PassingJudgeLLM())
+
+    assert judged["judge"]["passed"] is True
+    assert judged["judge"]["rubric"]["disclaimer"]["passed"] is True
 
 
 def test_rerun_overwrites_not_accumulates():

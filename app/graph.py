@@ -6,14 +6,13 @@ from app.nodes.approval_gate import approval_gate
 from app.nodes.assemble_report import assemble_report
 from app.nodes.conflict_check import conflict_check
 from app.nodes.extract_ips import extract_ips
-from app.nodes.judge_eval import judge_eval
+from app.nodes.judge_eval import MAX_JUDGE_RETRIES, judge_eval
 from app.nodes.load_inputs import load_inputs
 from app.nodes.rag_cite import rag_cite
 from app.nodes.var_engine import var_engine
 from app.state import RiskState
 
 MAX_CONFLICT_RETRIES = 1
-MAX_JUDGE_RETRIES = 2
 
 
 def route_after_conflict_check(state: RiskState) -> str:
