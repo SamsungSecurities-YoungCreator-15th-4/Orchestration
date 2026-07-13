@@ -28,25 +28,29 @@ class _AuditedLLM:
 
     def __init__(self, llm):
         self.llm = llm
-        self.prompts: list[str] = []
+        self.prompts: list[object] = []
         self.responses: list[object] = []
 
-    def invoke(self, prompt: str):
+    def invoke(self, prompt, *args, **kwargs):
         self.prompts.append(prompt)
-        response = self.llm.invoke(prompt)
+        response = self.llm.invoke(prompt, *args, **kwargs)
         self.responses.append(response)
         return response
 
+    def __getattr__(self, name):
+        return getattr(self.llm, name)
 
-def _named_prompts(prompts: list[str]) -> dict[str, str]:
+
+def _named_prompts(prompts: list[object]) -> dict[str, str]:
     """Judge prompt 본문의 판정 축을 감사 레코드 이름으로 사용한다."""
     named: dict[str, str] = {}
     for index, prompt in enumerate(prompts, 1):
-        match = re.search(r"판정 축:\s*([^\n]+)", prompt)
+        prompt_str = str(prompt)
+        match = re.search(r"판정 축:\s*([^\n]+)", prompt_str)
         name = match.group(1).strip() if match else f"prompt_{index}"
         if name in named:
             name = f"{name}_{index}"
-        named[name] = prompt
+        named[name] = prompt_str
     return named
 
 

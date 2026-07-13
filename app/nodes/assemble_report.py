@@ -213,7 +213,8 @@ def _audit_summary(state: RiskState) -> dict:
     audit = raw_audit if isinstance(raw_audit, dict) else {}
     raw_llm_audit = audit.get("llm")
     llm_audit = raw_llm_audit if isinstance(raw_llm_audit, dict) else {}
-    extraction = state.get("ips_extraction_meta") or {}
+    raw_extraction = state.get("ips_extraction_meta")
+    extraction = raw_extraction if isinstance(raw_extraction, dict) else {}
 
     model_versions = {
         "extract_ips": {

@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.llm.audit import prompt_hash_record
 from app.nodes.assemble_report import assemble_report
-from app.nodes.judge_eval import judge_eval
+from app.nodes.judge_eval import _AuditedLLM, _named_prompts, judge_eval
 from app.nodes.load_inputs import load_inputs
 from app.observability.langsmith import langsmith_enabled, prepare_trace_invocation
 
@@ -125,6 +125,43 @@ def test_prompt_hash_is_deterministic_and_sensitive():
 
     assert first == second
     assert first["aggregate_sha256"] != changed["aggregate_sha256"]
+
+
+def test_audited_llm_delegates_runnable_arguments_and_attributes():
+    class ConfigAwareLLM:
+        model_name = "delegated-model"
+
+        def invoke(self, prompt, config=None, **kwargs):
+            return {"prompt": prompt, "config": config, "kwargs": kwargs}
+
+    wrapped = _AuditedLLM(ConfigAwareLLM())
+    response = wrapped.invoke("prompt", {"tags": ["judge"]}, stop=["END"])
+
+    assert response["config"] == {"tags": ["judge"]}
+    assert response["kwargs"] == {"stop": ["END"]}
+    assert wrapped.model_name == "delegated-model"
+    assert wrapped.prompts == ["prompt"]
+    assert wrapped.responses == [response]
+
+
+def test_named_prompts_accepts_non_string_prompt_objects():
+    class PromptValue:
+        def __str__(self):
+            return "판정 축: hallucination\n입력"
+
+    assert _named_prompts([PromptValue()]) == {
+        "hallucination": "판정 축: hallucination\n입력"
+    }
+
+
+def test_report_ignores_invalid_ips_extraction_metadata():
+    state = _judge_state()
+    state["ips_extraction_meta"] = "invalid"
+
+    governance = assemble_report(state)["report"]["governance"]
+
+    assert governance["model_versions"]["extract_ips"]["model"] is None
+    assert governance["prompt_hashes"]["extract_ips"] is None
 
 
 def test_judge_failure_adds_trace_metadata_and_report_audit(monkeypatch):
