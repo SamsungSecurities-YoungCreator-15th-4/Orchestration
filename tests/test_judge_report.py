@@ -199,6 +199,46 @@ def test_assemble_report_adds_summary_evidence_governance():
     assert report["reproducibility"]["computation_hash"] == "metric-hash"
 
 
+def test_assemble_report_shows_confidence_interval_when_engine_provides_it():
+    """PR #25(엔진 신뢰구간) 배선 — confidence_interval이 있으면 범위 필드를 채운다."""
+    state = {
+        **BASE_STATE,
+        "metrics": {
+            **BASE_STATE["metrics"],
+            "confidence_interval": {
+                "ci_level": 0.90,
+                "1d": {
+                    "var_krw_low": 8, "var_krw_high": 12,
+                    "cvar_krw_low": 10, "cvar_krw_high": 14,
+                },
+                "10d": {
+                    "var_krw_low": 25, "var_krw_high": 35,
+                    "cvar_krw_low": 30, "cvar_krw_high": 42,
+                },
+            },
+        },
+    }
+
+    report = assemble_report(state)["report"]
+    risk = report["summary"]["risk"]
+
+    assert risk["ci_level"] == 0.90
+    assert (risk["var_1d_krw_low"], risk["var_1d_krw_high"]) == (8, 12)
+    assert (risk["cvar_10d_krw_low"], risk["cvar_10d_krw_high"]) == (30, 42)
+
+
+def test_assemble_report_confidence_interval_absent_falls_back_to_point_estimate():
+    """엔진이 아직 confidence_interval을 안 주는 구버전 metrics에서도 안 깨진다."""
+    report = assemble_report(BASE_STATE)["report"]
+    risk = report["summary"]["risk"]
+
+    assert risk["ci_level"] is None
+    assert risk["var_1d_krw_low"] is None
+    assert risk["var_1d_krw"] == 10
+    assert risk["var_1d_pct_low"] is None
+    assert risk["var_1d_pct"] is None
+
+
 def test_assemble_report_summarizes_multiple_stress_scenarios_deterministically():
     state = {
         **BASE_STATE,
