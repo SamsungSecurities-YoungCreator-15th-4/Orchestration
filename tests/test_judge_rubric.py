@@ -178,6 +178,7 @@ def test_prohibited_expression_ambiguous_negations_request_manual_review():
 def test_prohibited_expression_clear_double_negation_fails():
     texts = (
         "수익률을 보장하지 않는다고 오해해서는 안 됩니다.",
+        "수익률을 보장하지 않는다고, 오해해서는 안 됩니다.",
         "수익을 보장하지 않을 수 없습니다.",
         "수익 보장이 아니라고 할 수 없습니다.",
         "수익을 보장하지 않는다고 착각하지 마십시오.",

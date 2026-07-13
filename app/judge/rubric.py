@@ -29,16 +29,17 @@ _NUMBER_RE = re.compile(
     r"(?P<unit>%|bp|억원|억|만원|원|거래일|일)"
 )
 _CLAUSE_BOUNDARY_RE = re.compile(r"[,.!?;\n]")
+_SENTENCE_BOUNDARY_RE = re.compile(r"[.!?;\n]")
 _SPACED_AN_NEGATION_RE = re.compile(r"(?:^|\s)안(?:\s|되|돼|됨|함|하)")
 _CLEAR_DOUBLE_NEGATION_PATTERNS = (
     re.compile(
-        r"(?:않|아니|못|없)(?:는다고|다고|라고)?\s*(?:오해|착각).{0,12}"
+        r"(?:않|아니|못|없)(?:는다고|다고|라고)?[\s,]*(?:오해|착각).{0,12}"
         r"(?:안(?:\s|되|돼|됨|함|하)|않|말|마(?:십시오|세요|라|시오)|마(?=\s|[.!?]|$))"
     ),
     re.compile(
-        r"(?:않|아니|못|없)(?:는다고|다고|라고)?\s*(?:을|할)\s*수\s*(?:없|않)"
+        r"(?:않|아니|못|없)(?:는다고|다고|라고)?[\s,]*(?:을|할)\s*수\s*(?:없|않)"
     ),
-    re.compile(r"(?:않|아니|못|없).{0,8}(?:것|건)(?:은|이)?\s*(?:아니|않)"),
+    re.compile(r"(?:않|아니|못|없).{0,8}(?:것|건)(?:은|이)?[\s,]*(?:아니|않)"),
 )
 
 
@@ -244,7 +245,7 @@ def _scan_prohibited(explanations: list) -> tuple[list[str], list[str]]:
             context = text[match.end() : match.end() + NEGATION_WINDOW]
             extended_context = text[match.end() : match.end() + DOUBLE_NEGATION_WINDOW]
             context = _CLAUSE_BOUNDARY_RE.split(context, maxsplit=1)[0]
-            extended_context = _CLAUSE_BOUNDARY_RE.split(extended_context, maxsplit=1)[0]
+            extended_context = _SENTENCE_BOUNDARY_RE.split(extended_context, maxsplit=1)[0]
             negations = [marker for marker in NEGATION_MARKERS if marker in context]
             if _SPACED_AN_NEGATION_RE.search(context):
                 negations.append("안")
