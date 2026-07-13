@@ -14,7 +14,13 @@ from app.utils.hashing import sha256_of_dict
 
 
 def historical_var(returns: np.ndarray, confidence: float = 0.99) -> float:
-    """Historical VaR: 수익률 분포의 (1-confidence) 분위수 손실 (양수 = 손실)."""
+    """Historical VaR: 수익률 분포의 (1-confidence) 분위수 손실 (양수 = 손실).
+
+    변동성이 매우 낮은(또는 0인) 입력에서는 해당 분위수 자체가 양수로 나와
+    VaR이 음수로 계산될 수 있다 — 버그가 아니라 "해당 신뢰수준에서 손실이
+    발생하지 않는다(오히려 최소 이익이 보장된다)"는 뜻이다. 예: 현금 100%
+    포트폴리오처럼 일별 수익률이 항상 양수인 경우.
+    """
     q = np.quantile(np.asarray(returns, dtype=float), 1.0 - confidence)
     return float(-q)
 
@@ -48,7 +54,16 @@ def _asset_weights(returns_df: pd.DataFrame, portfolio: list[dict]) -> dict[str,
 
 
 def portfolio_returns(returns_df: pd.DataFrame, portfolio: list[dict]) -> np.ndarray:
-    """자산군별 일별 수익률 × 금액 비중으로 포트폴리오 일별 수익률 시계열 합성."""
+    """자산군별 일별 수익률 × 금액 비중으로 포트폴리오 일별 수익률 시계열 합성.
+
+    용어 유의: 방법론 문서는 이 방식을 "buy-and-hold 근사"로 표현하지만,
+    엄밀히는 buy-and-hold(무거래 시 시세 변동에 따라 비중이 자연스럽게
+    흘러가는 것)가 아니라 "고정 비중(constant-mix)" 계산이다 — 현재
+    포트폴리오 비중을 과거 전 구간에 동일하게 적용할 뿐, 일별 리밸런싱
+    거래를 가정하거나 비중이 시세에 따라 흘러가도록 반영하지 않는다.
+    다만 이는 Historical Simulation VaR의 표준적인 계산 방식(현재 비중을
+    과거 시나리오에 적용)이므로 계산 자체는 정확하다.
+    """
     weights = _asset_weights(returns_df, portfolio)
     w = np.array([weights.get(c, 0.0) for c in returns_df.columns], dtype=float)
     return returns_df.to_numpy(dtype=float) @ w
