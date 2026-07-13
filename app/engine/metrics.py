@@ -178,8 +178,8 @@ def var_ci_order_statistic(
     half_width = z * math.sqrt(n * p * (1.0 - p))
 
     sorted_ret = np.sort(port_ret)
-    j = max(int(math.floor(center - half_width)), 0)
-    k = min(int(math.ceil(center + half_width)), n - 1)
+    j = max(math.floor(center - half_width), 0)
+    k = min(math.ceil(center + half_width), n - 1)
 
     lower_q = float(sorted_ret[j])
     upper_q = float(sorted_ret[k])
