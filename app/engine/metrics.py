@@ -140,6 +140,60 @@ def lag1_autocorrelation(port_ret: np.ndarray) -> float:
     return 0.0 if np.isnan(corr) else round(float(corr), 6)
 
 
+def bootstrap_var_cvar_ci(
+    port_ret: np.ndarray,
+    confidence: float = 0.99,
+    ci_level: float = 0.90,
+    n_bootstrap: int = 1000,
+    seed: int = 42,
+) -> dict:
+    """VaR·CVaR(1일)의 부트스트랩 신뢰구간 — 위조정밀도 방지(range/신뢰구간 표현).
+
+    포트폴리오 수익률을 복원추출(bootstrap resampling)로 n_bootstrap회
+    다시 뽑아 매번 VaR·CVaR을 재계산하고, 그 분포의 (1±ci_level)/2 분위수를
+    구간으로 반환한다. "1.478812%"처럼 근거 없이 정밀한 점추정치 대신
+    "1.2%~1.7%" 같은 구간으로 표현할 수 있게 한다(methodology_var_cvar_2026
+    §7 표기 규약).
+
+    재현성: 리샘플링에 랜덤성이 들어가므로 seed를 반드시 고정한다
+    (config.yaml의 seed와 동일 기본값 42) — 같은 입력이면 같은 구간이 나온다.
+    """
+    port_ret = np.asarray(port_ret, dtype=float)
+    n = len(port_ret)
+    if n == 0:
+        raise ValueError("수익률 데이터가 비어 있어 부트스트랩을 수행할 수 없습니다.")
+    if not (0.0 < confidence < 1.0):
+        raise ValueError("신뢰수준(confidence)은 0과 1 사이의 값이어야 합니다.")
+    if not (0.0 < ci_level < 1.0):
+        raise ValueError("신뢰구간 수준(ci_level)은 0과 1 사이의 값이어야 합니다.")
+    if n_bootstrap <= 0:
+        raise ValueError("부트스트랩 반복 횟수(n_bootstrap)는 1 이상이어야 합니다.")
+    rng = np.random.default_rng(seed)
+
+    idx = rng.integers(0, n, size=(n_bootstrap, n))
+    resamples = port_ret[idx]  # (n_bootstrap, n)
+
+    q = np.quantile(resamples, 1.0 - confidence, axis=1)  # 리샘플별 VaR 분위수
+    var_samples = -q
+
+    tail_mask = resamples <= q[:, None]
+    tail_sums = np.sum(np.where(tail_mask, resamples, 0.0), axis=1)
+    tail_counts = np.maximum(tail_mask.sum(axis=1), 1)
+    cvar_samples = -(tail_sums / tail_counts)
+
+    lo_q = (1.0 - ci_level) / 2.0
+    hi_q = 1.0 - lo_q
+    return {
+        "ci_level": ci_level,
+        "n_bootstrap": n_bootstrap,
+        "seed": seed,
+        "var_pct_low": round(float(np.quantile(var_samples, lo_q)), 8),
+        "var_pct_high": round(float(np.quantile(var_samples, hi_q)), 8),
+        "cvar_pct_low": round(float(np.quantile(cvar_samples, lo_q)), 8),
+        "cvar_pct_high": round(float(np.quantile(cvar_samples, hi_q)), 8),
+    }
+
+
 def compute_metrics(
     returns_df: pd.DataFrame,
     portfolio: list[dict],
@@ -152,6 +206,9 @@ def compute_metrics(
     data_source: str | None = None,
     tickers: dict | None = None,
     fx_ticker: str | None = None,
+    seed: int = 42,
+    ci_level: float = 0.90,
+    n_bootstrap: int = 1000,
 ) -> dict:
     """포트폴리오 리스크 지표 일괄 계산.
 
@@ -179,8 +236,12 @@ def compute_metrics(
 
     var_1d = historical_var(port_ret, confidence)
     cvar_1d = historical_cvar(port_ret, confidence)
+    ci_1d = bootstrap_var_cvar_ci(
+        port_ret, confidence=confidence, ci_level=ci_level, n_bootstrap=n_bootstrap, seed=seed
+    )
 
     per_horizon = {}
+    confidence_interval = {"ci_level": ci_level, "n_bootstrap": n_bootstrap, "seed": seed}
     for h in horizons:
         scale = math.sqrt(h)
         per_horizon[f"{h}d"] = {
@@ -188,6 +249,17 @@ def compute_metrics(
             "cvar_pct": round(cvar_1d * scale, 8),
             "var_krw": round(total_value * var_1d * scale, 2),
             "cvar_krw": round(total_value * cvar_1d * scale, 2),
+        }
+        # √t 스케일링과 동일 규약으로 신뢰구간 경계도 보유기간별로 환산한다.
+        confidence_interval[f"{h}d"] = {
+            "var_pct_low": round(ci_1d["var_pct_low"] * scale, 8),
+            "var_pct_high": round(ci_1d["var_pct_high"] * scale, 8),
+            "cvar_pct_low": round(ci_1d["cvar_pct_low"] * scale, 8),
+            "cvar_pct_high": round(ci_1d["cvar_pct_high"] * scale, 8),
+            "var_krw_low": round(total_value * ci_1d["var_pct_low"] * scale, 2),
+            "var_krw_high": round(total_value * ci_1d["var_pct_high"] * scale, 2),
+            "cvar_krw_low": round(total_value * ci_1d["cvar_pct_low"] * scale, 2),
+            "cvar_krw_high": round(total_value * ci_1d["cvar_pct_high"] * scale, 2),
         }
 
     stress = run_all_stress(portfolio)
@@ -221,6 +293,9 @@ def compute_metrics(
             "data_source": data_source,
             "tickers": tickers,
             "fx_ticker": fx_ticker,
+            "seed": seed,
+            "ci_level": ci_level,
+            "n_bootstrap": n_bootstrap,
         },
         "results": {
             "per_horizon": per_horizon,
@@ -228,6 +303,7 @@ def compute_metrics(
             "drilldown": drilldown,
             "backtest": backtest,
             "autocorrelation_lag1": autocorrelation_lag1,
+            "confidence_interval": confidence_interval,
         },
     }
 
@@ -237,6 +313,7 @@ def compute_metrics(
         "stress": stress,
         "drilldown": drilldown,
         "backtest": backtest,
+        "confidence_interval": confidence_interval,
         "meta": {
             "method": "historical",
             "scaling": "sqrt_t",
@@ -249,6 +326,7 @@ def compute_metrics(
             "data_source": data_source,
             "tickers": tickers,
             "fx_ticker": fx_ticker,
+            "seed": seed,
             "computation_hash": sha256_of_dict(payload),
         },
     }

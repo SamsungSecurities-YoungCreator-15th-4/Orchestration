@@ -55,6 +55,9 @@ def var_engine(state: RiskState) -> dict:
         tickers = None
         fx_ticker = None
 
+    seed = run_config.get("seed")
+    seed = seed if seed is not None else 42
+
     metrics = compute_metrics(
         returns_df=returns_df,
         portfolio=state.get("portfolio", []),
@@ -67,5 +70,6 @@ def var_engine(state: RiskState) -> dict:
         data_source=data_source,
         tickers=tickers,
         fx_ticker=fx_ticker,
+        seed=seed,  # VaR/CVaR 신뢰구간(bootstrap)의 재현성 고정 — config.yaml의 seed
     )
     return {"metrics": metrics}

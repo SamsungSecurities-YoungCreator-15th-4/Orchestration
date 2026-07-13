@@ -15,6 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.engine.metrics import (
+    bootstrap_var_cvar_ci,
     compute_metrics,
     historical_cvar,
     historical_var,
@@ -693,6 +694,121 @@ def test_stress_shock_contract_locked():
     assert res["C_covid"]["loss_krw"] == 680_000_000.0
     # 손실 순서 A > C > B
     assert res["A_high_rate"]["loss_krw"] > res["C_covid"]["loss_krw"] > res["B_strong_usd"]["loss_krw"]
+
+
+# --- 부트스트랩 신뢰구간 (위조정밀도 방지) ---
+def test_bootstrap_ci_reproducible():
+    """[리뷰 반영] 같은 seed면 리샘플링 결과가 완전히 동일해야 한다(재현성)."""
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    port_ret = portfolio_returns(df, PORTFOLIO)
+    ci1 = bootstrap_var_cvar_ci(port_ret, confidence=0.99, seed=42)
+    ci2 = bootstrap_var_cvar_ci(port_ret, confidence=0.99, seed=42)
+    assert ci1 == ci2
+
+
+def test_bootstrap_ci_different_seed_can_differ():
+    """시드가 다르면 리샘플링 결과가 달라질 수 있다(랜덤성이 실제로 작동하는지 확인).
+
+    [리뷰 반영] 반환 딕셔너리 자체에 "seed" 필드가 들어있어서, 딕셔너리
+    전체를 비교하면 실제 계산된 경계값(var/cvar low/high)이 우연히
+    똑같아도(예: RNG가 seed를 무시하는 버그가 있어도) seed 값 차이만으로
+    항상 통과해버린다. 실제 산출된 경계값만 비교해야 랜덤성이 진짜
+    작동하는지 검증된다.
+    """
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    port_ret = portfolio_returns(df, PORTFOLIO)
+    ci_a = bootstrap_var_cvar_ci(port_ret, confidence=0.99, seed=1)
+    ci_b = bootstrap_var_cvar_ci(port_ret, confidence=0.99, seed=2)
+    bounds_a = {k: v for k, v in ci_a.items() if k not in ("seed", "ci_level", "n_bootstrap")}
+    bounds_b = {k: v for k, v in ci_b.items() if k not in ("seed", "ci_level", "n_bootstrap")}
+    assert bounds_a != bounds_b
+
+
+def test_bootstrap_ci_low_le_high():
+    """신뢰구간 하한은 항상 상한 이하여야 한다."""
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    port_ret = portfolio_returns(df, PORTFOLIO)
+    ci = bootstrap_var_cvar_ci(port_ret, confidence=0.99, seed=42)
+    assert ci["var_pct_low"] <= ci["var_pct_high"]
+    assert ci["cvar_pct_low"] <= ci["cvar_pct_high"]
+
+
+# --- [리뷰 반영] 부트스트랩 입력값 방어적 유효성 검증 ---
+def test_bootstrap_ci_rejects_empty_returns():
+    with pytest.raises(ValueError):
+        bootstrap_var_cvar_ci(np.array([]), confidence=0.99, seed=42)
+
+
+def test_bootstrap_ci_rejects_invalid_confidence():
+    port_ret = _wave_returns(scale=0.01)
+    with pytest.raises(ValueError):
+        bootstrap_var_cvar_ci(port_ret, confidence=1.5, seed=42)
+    with pytest.raises(ValueError):
+        bootstrap_var_cvar_ci(port_ret, confidence=0.0, seed=42)
+
+
+def test_bootstrap_ci_rejects_invalid_ci_level():
+    port_ret = _wave_returns(scale=0.01)
+    with pytest.raises(ValueError):
+        bootstrap_var_cvar_ci(port_ret, ci_level=1.0, seed=42)
+
+
+def test_bootstrap_ci_rejects_non_positive_n_bootstrap():
+    port_ret = _wave_returns(scale=0.01)
+    with pytest.raises(ValueError):
+        bootstrap_var_cvar_ci(port_ret, n_bootstrap=0, seed=42)
+
+
+def test_bootstrap_ci_contains_point_estimate():
+    """신뢰구간은 점추정치(historical_var/cvar)를 포함하는 게 일반적이다(90% CI 기준)."""
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    port_ret = portfolio_returns(df, PORTFOLIO)
+    point_var = historical_var(port_ret, 0.99)
+    point_cvar = historical_cvar(port_ret, 0.99)
+    ci = bootstrap_var_cvar_ci(port_ret, confidence=0.99, ci_level=0.90, seed=42)
+    assert ci["var_pct_low"] <= point_var <= ci["var_pct_high"]
+    assert ci["cvar_pct_low"] <= point_cvar <= ci["cvar_pct_high"]
+
+
+def test_confidence_interval_present_in_compute_metrics_output():
+    """compute_metrics 반환값에 horizon별 confidence_interval이 포함된다."""
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    m = compute_metrics(df, PORTFOLIO, confidence=0.99, horizons=[1, 10], seed=42)
+    assert "1d" in m["confidence_interval"]
+    assert "10d" in m["confidence_interval"]
+    assert m["confidence_interval"]["seed"] == 42
+    assert m["meta"]["seed"] == 42
+
+
+def test_confidence_interval_10d_wider_than_1d():
+    """10일 신뢰구간은 √t 스케일링 때문에 1일보다 폭이 넓어야 한다."""
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    m = compute_metrics(df, PORTFOLIO, confidence=0.99, horizons=[1, 10], seed=42)
+    width_1d = m["confidence_interval"]["1d"]["var_pct_high"] - m["confidence_interval"]["1d"]["var_pct_low"]
+    width_10d = m["confidence_interval"]["10d"]["var_pct_high"] - m["confidence_interval"]["10d"]["var_pct_low"]
+    assert width_10d > width_1d
+
+
+def test_compute_metrics_reproducible_with_confidence_interval():
+    """같은 입력·같은 seed로 2회 호출 → confidence_interval을 포함해 완전히 동일해야 한다."""
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    m1 = compute_metrics(df, PORTFOLIO, confidence=0.99, horizons=[1, 10], seed=42)
+    m2 = compute_metrics(df, PORTFOLIO, confidence=0.99, horizons=[1, 10], seed=42)
+    assert m1 == m2
+    assert m1["meta"]["computation_hash"] == m2["meta"]["computation_hash"]
+
+
+def test_var_engine_uses_config_seed_for_confidence_interval(tmp_path, monkeypatch):
+    """var_engine이 run_config["seed"]를 읽어 신뢰구간 재현성에 쓴다."""
+    monkeypatch.setattr(
+        "app.nodes.var_engine.load_returns", _load_returns_with_tmp_cache(tmp_path)
+    )
+    state = {
+        "run_config": {"as_of_date": "2026-07-03", "data_source": "dummy", "seed": 7},
+        "portfolio": PORTFOLIO,
+    }
+    result = var_engine(state)
+    assert result["metrics"]["meta"]["seed"] == 7
 
 
 def test_stress_band_range_locked():
