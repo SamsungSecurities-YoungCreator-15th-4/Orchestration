@@ -28,6 +28,7 @@ _NUMBER_RE = re.compile(
     r"(?<![\w.])(?P<number>[+-]?\d[\d,]*(?:\.\d+)?)\s*"
     r"(?P<unit>%|bp|억원|억|만원|원|거래일|일)"
 )
+_CLAUSE_BOUNDARY_RE = re.compile(r"[,.!?;\n]")
 _SPACED_AN_NEGATION_RE = re.compile(r"(?:^|\s)안(?:\s|되|돼|됨|함|하)")
 _CLEAR_DOUBLE_NEGATION_PATTERNS = (
     re.compile(
@@ -242,6 +243,8 @@ def _scan_prohibited(explanations: list) -> tuple[list[str], list[str]]:
         for match in re.finditer(re.escape(term), text):
             context = text[match.end() : match.end() + NEGATION_WINDOW]
             extended_context = text[match.end() : match.end() + DOUBLE_NEGATION_WINDOW]
+            context = _CLAUSE_BOUNDARY_RE.split(context, maxsplit=1)[0]
+            extended_context = _CLAUSE_BOUNDARY_RE.split(extended_context, maxsplit=1)[0]
             negations = [marker for marker in NEGATION_MARKERS if marker in context]
             if _SPACED_AN_NEGATION_RE.search(context):
                 negations.append("안")

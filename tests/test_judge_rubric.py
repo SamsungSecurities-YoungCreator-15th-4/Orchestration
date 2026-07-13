@@ -158,6 +158,11 @@ def test_prohibited_expression_negated_pass_and_positive_fail():
     assert passed is False
     assert "보장" in reason
 
+    passed, _ = prohibited_expression(
+        _explanations("수익이 보장됩니다. 투자 권유가 아니며 실제 결과와 다를 수 있습니다.")
+    )
+    assert passed is False
+
     passed, _ = prohibited_expression(_explanations("수익률을 보장 안정적으로 제공합니다."))
     assert passed is False
 
