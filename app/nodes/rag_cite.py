@@ -112,6 +112,35 @@ def _build_explanations(
     return explanations
 
 
+def _evidence_rows(chunks: list[dict]) -> list[dict]:
+    """유효한 chunk 원문 줄만 evidence_id와 함께 결정론적으로 펼친다."""
+    rows: list[dict] = []
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            continue
+        chunk_id = chunk.get("chunk_id")
+        text = chunk.get("text")
+        if not isinstance(chunk_id, str) or not chunk_id.strip():
+            continue
+        if not isinstance(text, str):
+            continue
+        source = chunk.get("source")
+        source = source if isinstance(source, str) else ""
+        for line_no, line in enumerate(text.splitlines(), 1):
+            quote = line.strip()
+            if not quote:
+                continue
+            rows.append(
+                {
+                    "evidence_id": f"{chunk_id}#L{line_no:03d}",
+                    "quote": quote,
+                    "chunk_id": chunk_id,
+                    "source": source,
+                }
+            )
+    return rows
+
+
 def parse_candidates(raw: str, chunks: list[dict]) -> list[Citation]:
     """LLM 응답 텍스트에서 인용 후보 JSON 배열을 파싱해 Citation 목록으로.
 
@@ -130,17 +159,9 @@ def parse_candidates(raw: str, chunks: list[dict]) -> list[Citation]:
     if not isinstance(items, list):
         return []
 
-    source_by_id = {c["chunk_id"]: c.get("source", "") for c in chunks}
-    evidence_by_id = {
-        f"{chunk['chunk_id']}#L{line_no:03d}": {
-            "quote": line.strip(),
-            "chunk_id": chunk["chunk_id"],
-            "source": chunk.get("source", ""),
-        }
-        for chunk in chunks
-        for line_no, line in enumerate(chunk.get("text", "").splitlines(), 1)
-        if line.strip()
-    }
+    evidence_rows = _evidence_rows(chunks)
+    source_by_id = {row["chunk_id"]: row["source"] for row in evidence_rows}
+    evidence_by_id = {row["evidence_id"]: row for row in evidence_rows}
     out: list[Citation] = []
     for it in items:
         if not isinstance(it, dict):
@@ -174,12 +195,10 @@ def _build_prompt(
 ) -> str:
     evidence_lines = [
         (
-            f"[evidence_id={chunk['chunk_id']}#L{line_no:03d} "
-            f"chunk_id={chunk['chunk_id']} source={chunk['source']}]\n{line.strip()}"
+            f"[evidence_id={row['evidence_id']} chunk_id={row['chunk_id']} "
+            f"source={row['source']}]\n{row['quote']}"
         )
-        for chunk in chunks
-        for line_no, line in enumerate(chunk.get("text", "").splitlines(), 1)
-        if line.strip()
+        for row in _evidence_rows(chunks)
     ]
     feedback_line = f"\n직전 judge 피드백(반영할 것): {judge_feedback}\n" if judge_feedback else ""
     return (

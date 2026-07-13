@@ -180,7 +180,8 @@ def _methodology_refs(meta_ref, citations: list[dict]) -> list[str]:
         if not isinstance(citation, dict) or citation.get("verified") is not True:
             continue
         source = citation.get("source")
-        extra = citation.get("extra") or {}
+        raw_extra = citation.get("extra")
+        extra = raw_extra if isinstance(raw_extra, dict) else {}
         if not isinstance(source, str) or not source.strip():
             continue
         filename = source.strip().rsplit("/", 1)[-1]

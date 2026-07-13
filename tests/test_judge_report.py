@@ -303,7 +303,7 @@ def test_assemble_report_collects_only_verified_cited_methodologies():
             {
                 "source": "methodology_stress_2026.pdf",
                 "verified": True,
-                "extra": {"category": "methodology"},
+                "extra": "malformed-extra",
             },
             {
                 "source": "methodology_unverified_2026.pdf",

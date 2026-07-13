@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.nodes.judge_eval import judge_eval
-from app.nodes.rag_cite import _build_query, parse_candidates, rag_cite
+from app.nodes.rag_cite import _build_query, _evidence_rows, parse_candidates, rag_cite
 
 REAL_SENTENCE = "스트레스 테스트는 역사적 VaR가 포착하지 못하는 꼬리 위험을 보완한다."
 
@@ -179,6 +179,30 @@ def test_parse_candidates_resolves_evidence_id_to_exact_pdf_line():
     assert len(got) == 1
     assert got[0].quote == "재 포트폴리오에 독립 적용한다."
     assert got[0].chunk_id == "methodology.pdf::0001"
+
+
+def test_evidence_rows_ignore_malformed_chunks():
+    chunks = [
+        {},
+        {"chunk_id": "none-text.pdf::0001", "text": None},
+        {"chunk_id": "", "text": "빈 ID"},
+        {"chunk_id": "valid.pdf::0001", "source": None, "text": "첫 줄\n\n둘째 줄"},
+    ]
+
+    assert _evidence_rows(chunks) == [
+        {
+            "evidence_id": "valid.pdf::0001#L001",
+            "quote": "첫 줄",
+            "chunk_id": "valid.pdf::0001",
+            "source": "",
+        },
+        {
+            "evidence_id": "valid.pdf::0001#L003",
+            "quote": "둘째 줄",
+            "chunk_id": "valid.pdf::0001",
+            "source": "",
+        },
+    ]
 
 
 class _BrokenRetriever:
