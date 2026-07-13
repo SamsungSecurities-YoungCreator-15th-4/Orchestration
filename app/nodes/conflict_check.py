@@ -1,6 +1,7 @@
 """공식 적합성 원칙 + 내부 정량 임계값에 기반한 IPS 사전 충돌 검사."""
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 
 import yaml
@@ -12,7 +13,9 @@ POLICY_PATH = Path(__file__).resolve().parents[2] / "config" / "ips_policy.yaml"
 RISKY_ASSET_CLASSES = {"domestic_equity", "global_equity", "alternatives"}
 
 
+@lru_cache(maxsize=1)
 def _load_policy() -> dict:
+    """프로세스 수명 동안 버전된 정적 정책을 한 번만 읽는다."""
     with open(POLICY_PATH, encoding="utf-8") as file:
         policy = yaml.safe_load(file)
     if not isinstance(policy, dict) or not policy.get("version"):
@@ -121,7 +124,7 @@ def conflict_check(state: RiskState) -> dict:
     if extracted_amount is None:
         legacy_needs = ips.get("liquidity_needs") or []
         liquidity_total = sum(
-            need.get("amount_krw", 0)
+            need.get("amount_krw") or 0
             for need in legacy_needs
             if isinstance(need, dict)
         )

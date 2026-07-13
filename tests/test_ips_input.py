@@ -117,6 +117,43 @@ def test_new_ips_liquidity_amount_uses_existing_30_percent_conflict_rule():
     assert result["conflict_policy"]["policy_hash"]
 
 
+def test_legacy_liquidity_none_amount_is_treated_as_zero():
+    portfolio = portfolio_from_percentages(
+        {
+            asset_class: value
+            for (asset_class, _), value in zip(
+                ASSET_DEFINITIONS,
+                [25, 20, 25, 15, 10, 5],
+            )
+        }
+    )
+    result = conflict_check(
+        {
+            "ips": {
+                "Time": 10,
+                "Risk": "균형형",
+                "Liquidity": "중간",
+                "liquidity_needs": [{"amount_krw": None}],
+            },
+            "portfolio": portfolio,
+        }
+    )
+
+    assert result["conflicts"] == []
+
+
+def test_conflict_policy_is_cached_after_first_load():
+    import app.nodes.conflict_check as conflict_module
+
+    conflict_module._load_policy.cache_clear()
+    first = conflict_module._load_policy()
+    second = conflict_module._load_policy()
+
+    assert first is second
+    assert conflict_module._load_policy.cache_info().misses == 1
+    assert conflict_module._load_policy.cache_info().hits == 1
+
+
 def test_conflict_check_blocks_missing_time_and_allows_review_for_concentration():
     portfolio = portfolio_from_percentages(
         {

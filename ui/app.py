@@ -225,6 +225,7 @@ if not report:
             else:
                 st.warning("PB의 구체적 사유가 있는 예외 승인 후 리스크 계산만 진행할 수 있습니다.")
             st.dataframe(conflicts, use_container_width=True, hide_index=True)
+        approve_clicked = False
         if not blocking_conflicts:
             with st.form("pb_approval"):
                 ips = pending.get("ips") or {}
