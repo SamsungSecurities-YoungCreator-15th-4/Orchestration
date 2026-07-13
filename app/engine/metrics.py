@@ -7,6 +7,7 @@ import math
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
 
 from app.engine.stress import run_all_stress
 from app.utils.hashing import sha256_of_dict
@@ -140,6 +141,57 @@ def lag1_autocorrelation(port_ret: np.ndarray) -> float:
     return 0.0 if np.isnan(corr) else round(float(corr), 6)
 
 
+def var_ci_order_statistic(
+    port_ret: np.ndarray,
+    confidence: float = 0.99,
+    ci_level: float = 0.90,
+) -> dict:
+    """VaR(1일)의 분포무관(distribution-free) 신뢰구간 — 순서통계량 기반, 난수 미사용.
+
+    복원추출(bootstrap) 없이, 정렬된 과거 수익률에서 이항분포의 정규근사로
+    유도한 순서통계량 위치를 직접 계산해 신뢰구간을 반환한다. n개 관측치 중
+    (1-confidence) 분위수 이하 관측치 개수는 Binomial(n, 1-confidence)을
+    따른다는 사실에서, 그 이항분포의 정규근사로 신뢰구간 경계에 해당하는
+    순서통계량 인덱스(j, k)를 구한다.
+
+    무작위성이 전혀 없어(정렬 + 산술 연산뿐) 시드 없이도 항상 완전히 동일한
+    결과를 재현한다 — bootstrap_var_cvar_ci보다 더 강한 형태의 재현성이다.
+    다만 정규근사 자체가 표본이 충분히 클 때 유효하므로, 극단적으로 작은
+    표본에서는 근사 오차가 커질 수 있다.
+
+    CVaR(꼬리 구간의 평균)에는 이 방법이 직접 적용되지 않는다 — 순서통계량
+    이론은 단일 분위수(포인트)에 대한 것이라, 꼬리 평균인 CVaR의 신뢰구간은
+    여전히 bootstrap_var_cvar_ci를 쓴다.
+    """
+    port_ret = np.asarray(port_ret, dtype=float)
+    n = len(port_ret)
+    if n == 0:
+        raise ValueError("수익률 데이터가 비어 있어 신뢰구간을 계산할 수 없습니다.")
+    if not (0.0 < confidence < 1.0):
+        raise ValueError("신뢰수준(confidence)은 0과 1 사이의 값이어야 합니다.")
+    if not (0.0 < ci_level < 1.0):
+        raise ValueError("신뢰구간 수준(ci_level)은 0과 1 사이의 값이어야 합니다.")
+
+    p = 1.0 - confidence
+    z = float(norm.ppf(1.0 - (1.0 - ci_level) / 2.0))
+    center = n * p
+    half_width = z * math.sqrt(n * p * (1.0 - p))
+
+    sorted_ret = np.sort(port_ret)
+    j = max(math.floor(center - half_width), 0)
+    k = min(math.ceil(center + half_width), n - 1)
+
+    lower_q = float(sorted_ret[j])
+    upper_q = float(sorted_ret[k])
+
+    return {
+        "ci_level": ci_level,
+        "method": "order_statistic",
+        "var_pct_low": round(-upper_q, 8),
+        "var_pct_high": round(-lower_q, 8),
+    }
+
+
 def bootstrap_var_cvar_ci(
     port_ret: np.ndarray,
     confidence: float = 0.99,
@@ -236,12 +288,22 @@ def compute_metrics(
 
     var_1d = historical_var(port_ret, confidence)
     cvar_1d = historical_cvar(port_ret, confidence)
-    ci_1d = bootstrap_var_cvar_ci(
+    # VaR 신뢰구간: 순서통계량 기반(무작위성 없음, seed 불필요).
+    var_ci_1d = var_ci_order_statistic(port_ret, confidence=confidence, ci_level=ci_level)
+    # CVaR 신뢰구간: 순서통계량 이론이 꼬리 평균(CVaR)에는 직접 적용되지 않아
+    # 부트스트랩을 유지한다 — seed 고정으로 재현성을 보장한다.
+    cvar_ci_1d = bootstrap_var_cvar_ci(
         port_ret, confidence=confidence, ci_level=ci_level, n_bootstrap=n_bootstrap, seed=seed
     )
 
     per_horizon = {}
-    confidence_interval = {"ci_level": ci_level, "n_bootstrap": n_bootstrap, "seed": seed}
+    confidence_interval = {
+        "ci_level": ci_level,
+        "var_method": "order_statistic",
+        "cvar_method": "bootstrap",
+        "cvar_n_bootstrap": n_bootstrap,
+        "cvar_seed": seed,
+    }
     for h in horizons:
         scale = math.sqrt(h)
         per_horizon[f"{h}d"] = {
@@ -252,14 +314,14 @@ def compute_metrics(
         }
         # √t 스케일링과 동일 규약으로 신뢰구간 경계도 보유기간별로 환산한다.
         confidence_interval[f"{h}d"] = {
-            "var_pct_low": round(ci_1d["var_pct_low"] * scale, 8),
-            "var_pct_high": round(ci_1d["var_pct_high"] * scale, 8),
-            "cvar_pct_low": round(ci_1d["cvar_pct_low"] * scale, 8),
-            "cvar_pct_high": round(ci_1d["cvar_pct_high"] * scale, 8),
-            "var_krw_low": round(total_value * ci_1d["var_pct_low"] * scale, 2),
-            "var_krw_high": round(total_value * ci_1d["var_pct_high"] * scale, 2),
-            "cvar_krw_low": round(total_value * ci_1d["cvar_pct_low"] * scale, 2),
-            "cvar_krw_high": round(total_value * ci_1d["cvar_pct_high"] * scale, 2),
+            "var_pct_low": round(var_ci_1d["var_pct_low"] * scale, 8),
+            "var_pct_high": round(var_ci_1d["var_pct_high"] * scale, 8),
+            "cvar_pct_low": round(cvar_ci_1d["cvar_pct_low"] * scale, 8),
+            "cvar_pct_high": round(cvar_ci_1d["cvar_pct_high"] * scale, 8),
+            "var_krw_low": round(total_value * var_ci_1d["var_pct_low"] * scale, 2),
+            "var_krw_high": round(total_value * var_ci_1d["var_pct_high"] * scale, 2),
+            "cvar_krw_low": round(total_value * cvar_ci_1d["cvar_pct_low"] * scale, 2),
+            "cvar_krw_high": round(total_value * cvar_ci_1d["cvar_pct_high"] * scale, 2),
         }
 
     stress = run_all_stress(portfolio)

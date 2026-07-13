@@ -23,6 +23,7 @@ from app.engine.metrics import (
     portfolio_returns,
     tail_contribution,
     var_backtest,
+    var_ci_order_statistic,
 )
 from app.engine import returns as returns_mod
 from app.engine.returns import ASSET_CLASSES, _generate_dummy_returns, load_real_returns, load_returns
@@ -770,13 +771,71 @@ def test_bootstrap_ci_contains_point_estimate():
     assert ci["cvar_pct_low"] <= point_cvar <= ci["cvar_pct_high"]
 
 
+# --- VaR 신뢰구간(순서통계량, 무작위성 없음) ---
+def test_var_ci_order_statistic_deterministic_without_seed():
+    """순서통계량 방식은 seed 인자 자체가 없다 — 몇 번을 호출해도 완전히 동일하다."""
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    port_ret = portfolio_returns(df, PORTFOLIO)
+    ci1 = var_ci_order_statistic(port_ret, confidence=0.99, ci_level=0.90)
+    ci2 = var_ci_order_statistic(port_ret, confidence=0.99, ci_level=0.90)
+    assert ci1 == ci2
+
+
+def test_var_ci_order_statistic_low_le_high():
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    port_ret = portfolio_returns(df, PORTFOLIO)
+    ci = var_ci_order_statistic(port_ret, confidence=0.99, ci_level=0.90)
+    assert ci["var_pct_low"] <= ci["var_pct_high"]
+
+
+def test_var_ci_order_statistic_contains_point_estimate():
+    """신뢰구간은 점추정치(historical_var)를 포함하는 게 일반적이다(90% CI 기준)."""
+    df = _generate_dummy_returns(n=1250, as_of_date="2026-07-03")
+    port_ret = portfolio_returns(df, PORTFOLIO)
+    point_var = historical_var(port_ret, 0.99)
+    ci = var_ci_order_statistic(port_ret, confidence=0.99, ci_level=0.90)
+    assert ci["var_pct_low"] <= point_var <= ci["var_pct_high"]
+
+
+def test_var_ci_order_statistic_width_shrinks_as_n_grows():
+    """표본이 클수록 추정이 정밀해져 신뢰구간 폭(점추정치 대비 비율)이 줄어든다."""
+    def _ratio(n):
+        r = _wave_returns(scale=0.012, n=n)
+        pt = historical_var(r, 0.99)
+        ci = var_ci_order_statistic(r, confidence=0.99, ci_level=0.90)
+        return (ci["var_pct_high"] - ci["var_pct_low"]) / pt
+
+    assert _ratio(250) > _ratio(1250) > _ratio(5000)
+
+
+def test_var_ci_order_statistic_rejects_empty_returns():
+    with pytest.raises(ValueError):
+        var_ci_order_statistic(np.array([]), confidence=0.99)
+
+
+def test_var_ci_order_statistic_rejects_invalid_confidence():
+    port_ret = _wave_returns(scale=0.01)
+    with pytest.raises(ValueError):
+        var_ci_order_statistic(port_ret, confidence=1.5)
+    with pytest.raises(ValueError):
+        var_ci_order_statistic(port_ret, confidence=0.0)
+
+
+def test_var_ci_order_statistic_rejects_invalid_ci_level():
+    port_ret = _wave_returns(scale=0.01)
+    with pytest.raises(ValueError):
+        var_ci_order_statistic(port_ret, ci_level=1.0)
+
+
 def test_confidence_interval_present_in_compute_metrics_output():
     """compute_metrics 반환값에 horizon별 confidence_interval이 포함된다."""
     df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
     m = compute_metrics(df, PORTFOLIO, confidence=0.99, horizons=[1, 10], seed=42)
     assert "1d" in m["confidence_interval"]
     assert "10d" in m["confidence_interval"]
-    assert m["confidence_interval"]["seed"] == 42
+    assert m["confidence_interval"]["cvar_seed"] == 42
+    assert m["confidence_interval"]["var_method"] == "order_statistic"
+    assert m["confidence_interval"]["cvar_method"] == "bootstrap"
     assert m["meta"]["seed"] == 42
 
 
