@@ -21,6 +21,7 @@ AXIS_NAMES = (
 PROHIBITED_TERMS = ("보장", "확정", "반드시", "무조건", "절대", "확실히")
 NEGATION_MARKERS = ("않", "아니", "못", "없")
 NEGATION_WINDOW = 15
+DOUBLE_NEGATION_WINDOW = 40
 
 _DATE_RE = re.compile(r"(?<!\d)\d{4}-\d{2}-\d{2}(?!\d)")
 _NUMBER_RE = re.compile(
@@ -28,6 +29,11 @@ _NUMBER_RE = re.compile(
     r"(?P<unit>%|bp|억원|억|만원|원|거래일|일)"
 )
 _SPACED_AN_NEGATION_RE = re.compile(r"(?:^|\s)안(?:\s|되|돼|됨|함|하)")
+_CLEAR_DOUBLE_NEGATION_PATTERNS = (
+    re.compile(r"(?:않|아니|못|없)(?:는다고|다고|라고)?\s*(?:오해|착각).{0,12}(?:안|않|말)"),
+    re.compile(r"(?:않|아니|못|없)(?:는다고|다고|라고)?\s*할\s*수\s*(?:없|않)"),
+    re.compile(r"(?:않|아니|못|없).{0,8}(?:것|건)(?:은|이)?\s*(?:아니|않)"),
+)
 
 
 def _explanation_text(explanations: list) -> str:
@@ -230,10 +236,19 @@ def _scan_prohibited(explanations: list) -> tuple[list[str], list[str]]:
     for term in PROHIBITED_TERMS:
         for match in re.finditer(re.escape(term), text):
             context = text[match.end() : match.end() + NEGATION_WINDOW]
+            extended_context = text[match.end() : match.end() + DOUBLE_NEGATION_WINDOW]
             negations = [marker for marker in NEGATION_MARKERS if marker in context]
             if _SPACED_AN_NEGATION_RE.search(context):
                 negations.append("안")
-            if not negations:
+            clear_double_negation = any(
+                pattern.search(extended_context)
+                for pattern in _CLEAR_DOUBLE_NEGATION_PATTERNS
+            )
+            if clear_double_negation:
+                violations.append(
+                    f"{term} 뒤 명시적 이중부정: {extended_context.strip()[:40]}"
+                )
+            elif not negations:
                 violations.append(f"{term}({context.strip()[:20]})")
             elif len(negations) > 1:
                 ambiguous.append(f"{term} 뒤 이중부정 가능성: {context.strip()[:20]}")

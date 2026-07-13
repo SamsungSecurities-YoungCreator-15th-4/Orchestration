@@ -170,6 +170,17 @@ def test_prohibited_expression_double_negation_requests_manual_review():
     assert prohibited_manual_flags(explanations)
 
 
+def test_prohibited_expression_clear_double_negation_fails():
+    explanations = _explanations(
+        "수익률을 보장하지 않는다고 오해해서는 안 됩니다."
+    )
+    passed, reason = prohibited_expression(explanations)
+
+    assert passed is False
+    assert "명시적 이중부정" in reason
+    assert prohibited_manual_flags(explanations) == []
+
+
 def test_judge_eval_normal_e2e_passes_with_fake_llm():
     out = judge_eval(_normal_state(), llm=_AxisLLM())
 
