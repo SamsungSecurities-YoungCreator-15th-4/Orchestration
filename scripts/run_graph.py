@@ -7,7 +7,6 @@
 """
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -38,19 +37,25 @@ def main() -> None:
                         help="judge를 N회 강제 실패시켜 재작성 루프 시연")
     parser.add_argument("--with-conflict", action="store_true",
                         help="유동성 요구를 과대 설정해 충돌 분기 시연")
+    parser.add_argument("--offline", action="store_true",
+                        help="외부 API 없이 결정론 IPS·더미 시장데이터로 실행")
     args = parser.parse_args()
-
-    os.environ["RISK_FORCE_JUDGE_FAIL"] = str(args.force_judge_fail)
-    os.environ["RISK_FORCE_CONFLICT"] = "1" if args.with_conflict else "0"
 
     from app.graph import build_graph
 
     graph = build_graph()
     config = {"configurable": {"thread_id": THREAD_ID}}
     order: list[str] = []
+    initial_state = {
+        "demo_options": {
+            "force_judge_fail": args.force_judge_fail,
+            "force_conflict": args.with_conflict,
+            "offline": args.offline,
+        }
+    }
 
     _print_header("1) 그래프 실행 시작")
-    _stream_and_collect(graph, {}, config, order)
+    _stream_and_collect(graph, initial_state, config, order)
 
     snapshot = graph.get_state(config)
     if snapshot.next and "approval_gate" in snapshot.next:
@@ -65,9 +70,27 @@ def main() -> None:
             print("\n  --auto-approve 미지정: 승인 대기 상태로 종료합니다.")
             return
 
+        blocking = [c for c in conflicts if c.get("severity") == "block"]
+        if blocking:
+            rules = ", ".join(c.get("rule", "unknown") for c in blocking)
+            raise SystemExit(f"자동 승인 불가: block 충돌({rules})을 먼저 해소하세요.")
+        has_review = any(c.get("severity") == "review" for c in conflicts)
+
         graph.update_state(
             config,
-            {"approval": {"status": "approved", "approver": "cli-auto", "note": "CLI 자동 승인"}},
+            {
+                "approval": {
+                    "status": "reviewed",
+                    "decision": "exception_approved" if has_review else "approved",
+                    "approver": "cli-auto",
+                    "note": "CLI 자동 승인",
+                    "exception_reason": (
+                        "시연 목적의 리스크 계산에 한해 예외 승인하며 거래 승인이 아님"
+                        if has_review
+                        else ""
+                    ),
+                }
+            },
         )
         print("  ✔ 자동 승인 주입 → 그래프 재개")
         _stream_and_collect(graph, None, config, order)

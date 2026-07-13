@@ -35,5 +35,5 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - run: pytest
-      # 외부 API 키 없이 그래프가 완주하는지 스모크 테스트 (LLM 노드는 스텁)
-      - run: python scripts/run_graph.py --auto-approve
+      # 외부 API 키·네트워크 없이 그래프가 완주하는지 스모크 테스트
+      - run: python scripts/run_graph.py --auto-approve --offline

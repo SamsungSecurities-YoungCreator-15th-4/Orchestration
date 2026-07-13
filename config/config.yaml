@@ -4,3 +4,16 @@ base_currency: KRW
 rf_rate: 0.0325
 var_confidence: 0.99
 horizons: [1, 10]
+# Historical VaR/CVaR 관측 기간(거래일). methodology_var_cvar_2026 §3 참조.
+# 1250 거래일(약 5년) — 99% 신뢰수준의 꼬리 관측치를 250일(약 2~3개)보다
+# 크게 늘려(약 12개) 통계적 안정성을 확보했다. 5년이면 최소 1회의 위기
+# 국면(금리 급등기 등)을 포함할 가능성이 높아 꼬리 리스크 포착에도 유리하다.
+# 대신 오래된 저변동성 구간이 섞여 반응성은 250~500일보다 낮다.
+var_lookback_days: 1250
+# 수익률 데이터 출처. "real"=yfinance 실데이터(기본, 로컬 parquet 캐시 —
+# Yahoo Finance 재배포 제약으로 git 미커밋, 발표 전 1회 실행으로 예열),
+# "dummy"=고정 수식 더미(네트워크 불요, 오프라인 개발/테스트용).
+data_source: real
+# 개발 기본값은 인용 0건을 수동 검토 대상으로 허용한다.
+# 제출·시연에서는 true로 전환해 검증 통과 인용이 없으면 judge를 실패시킨다.
+strict_citation_gate: false

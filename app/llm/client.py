@@ -5,7 +5,7 @@
 import os
 
 
-def get_llm(temperature: float = 0.0):
+def get_llm(temperature: float = 0.0, *, seed: int | None = None):
     """AzureChatOpenAI 인스턴스 생성 (temperature=0 고정 기본값).
 
     호출 시점에 import하여, 키가 없는 스켈레톤 실행 경로에서는
@@ -26,4 +26,5 @@ def get_llm(temperature: float = 0.0):
         api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21"),
         azure_deployment=os.environ["AZURE_OPENAI_DEPLOYMENT"],
         temperature=temperature,
+        seed=seed,
     )

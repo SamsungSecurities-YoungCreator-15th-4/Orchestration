@@ -1,0 +1,31 @@
+version: "2026-07-13.v1"
+policy_ref: "docs/ips_conflict_policy.md"
+
+# 아래 숫자는 법정 한도가 아니라 공식 적합성·분산 원칙을 운영 가능한
+# 사전 red flag로 바꾼 팀 내부 기준이다. 실제 상품 위험등급 확정 전에는
+# severity=review로만 사용하고 PB의 근거 있는 예외 승인을 허용한다.
+thresholds:
+  max_liquidity_need_ratio: 0.30
+  min_years_for_risky_assets: 1.0
+  balanced_max_risky_ratio: 0.60
+  max_single_risky_asset_ratio: 0.40
+
+sources:
+  - id: FCPA_ART17
+    title: "금융소비자 보호에 관한 법률 제17조 적합성원칙"
+    url: "https://law.go.kr/lsLinkCommonInfo.do?chrClsCd=010202&lsJoLnkSeq=1020684777"
+  - id: KOFIA_STANDARD
+    title: "금융투자협회 표준투자권유준칙"
+    url: "https://law.kofia.or.kr/service/law/lawFullScreenContent.do?historySeq=1614&seq=149"
+  - id: FINRA_2111
+    title: "FINRA Rule 2111 Suitability"
+    url: "https://www.finra.org/rules-guidance/rulebooks/finra-rules/2111"
+  - id: INVESTOR_GOV_ALLOCATION
+    title: "SEC Investor.gov Asset Allocation and Diversification"
+    url: "https://www.investor.gov/introduction-investing/getting-started/asset-allocation"
+  - id: INVESTOR_GOV_DIVERSIFICATION
+    title: "SEC Investor.gov Introduction to Investing"
+    url: "https://www.investor.gov/introduction-investing"
+  - id: INTERNAL_POLICY
+    title: "프로젝트 내부 사전검토 임계값"
+    url: "docs/ips_conflict_policy.md"

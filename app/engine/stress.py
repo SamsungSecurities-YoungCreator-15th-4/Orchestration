@@ -3,38 +3,132 @@
 주의: 이 패키지(app.engine)에서는 langchain/llm 관련 import 금지.
 """
 
-# 고금리·강달러 시나리오: 자산군별 고정 충격률 (결정론적)
-SCENARIO_HIGH_RATE_STRONG_USD = {
-    "name": "high_rate_strong_usd",
-    "description": "기준금리 +200bp, 원/달러 +10% 복합 충격",
+# 스트레스 시나리오는 사전 정의·문서화되며, 실행 시점에 임의로 생성되지 않는다.
+# 충격 크기는 역사적 국면(2022 등)으로 방향·크기를 검증한 스타일라이즈드 대표 낙폭이며
+# (reference 병기), 특정 사건의 정밀 재현이 아니다. 값 변경은 회의에서 확정한다.
+# 자산군별 변환 규칙(shocks)은 결정론적으로 고정된다.
+
+# 시나리오 A — 고금리 충격: 정책금리 급등 국면.
+# 금리 상승 → 채권 가격 직접 하락(듀레이션 효과) + 주식·대체 할인율 상승 충격.
+SCENARIO_A_HIGH_RATE = {
+    "name": "A_high_rate",
+    "description": "정책금리 +250bp 급등 — 채권 가격 직접 하락 + 주식·대체 할인율 상승 충격",
+    "reference": "2022 고금리 국면(한·미 정책금리 급등) 참조 — 스타일라이즈드(방향·크기 정합)",
     "shocks": {
-        "domestic_equity": -0.12,
-        "global_equity": -0.06,
-        "domestic_bond": -0.05,
-        "global_bond": -0.01,
-        "alternatives": -0.08,
+        "domestic_equity": -0.25,
+        "global_equity": -0.25,
+        "domestic_bond": -0.15,
+        "global_bond": -0.12,
+        "alternatives": -0.10,
         "cash": 0.0,
     },
 }
 
+# 시나리오 B — 강달러 충격: 원/달러 급등 국면.
+# 미헤지 외화자산은 FX 환산이익이 위험회피 손실을 일부 상쇄(순손실 유지),
+# 원화자산은 자본유출·위험회피 충격을 직접 받는다.
+SCENARIO_B_STRONG_USD = {
+    "name": "B_strong_usd",
+    "description": "원/달러 +15% 급등 — 미헤지 외화자산 FX 환산이익이 위험회피 손실을 일부 상쇄, 원화자산은 위험회피 직격",
+    "reference": "2022 강달러 국면(원/달러 1,440원대) 참조 — 스타일라이즈드(방향·크기 정합)",
+    "shocks": {
+        "domestic_equity": -0.12,
+        "global_equity": -0.03,
+        "domestic_bond": -0.05,
+        "global_bond": -0.01,
+        "alternatives": -0.02,
+        "cash": 0.0,
+    },
+}
+
+# 시나리오 C — 코로나 충격: 팬데믹 유동성 쇼크 국면.
+# 주식 급락 + 유동성 경색, 채권은 안전자산 쏠림으로 상대적 방어(고금리와 대비되는 프로파일).
+SCENARIO_C_COVID = {
+    "name": "C_covid",
+    "description": "2020 코로나 팬데믹 급락 — 주식 급락·유동성 경색, 채권은 안전자산 쏠림으로 방어",
+    "reference": "2020-02~03 코로나 급락 국면 참조 — 스타일라이즈드(방향·크기 정합)",
+    "shocks": {
+        "domestic_equity": -0.30,
+        "global_equity": -0.25,
+        "domestic_bond": -0.03,
+        "global_bond": -0.01,
+        "alternatives": -0.02,
+        "cash": 0.0,
+    },
+}
+
+# 기본 시나리오 세트(순서 고정) — 리포트에 A·B·C 나란히 표기.
+DEFAULT_SCENARIOS = [SCENARIO_A_HIGH_RATE, SCENARIO_B_STRONG_USD, SCENARIO_C_COVID]
+
+# 자산군별 상대 충격 밴드 — range(완화/심화) 표시용. 변동성 순서(주식>대체>채권) 반영.
+# 밴드는 스타일라이즈드 충격의 불확실성을 나타내는 표시(presentation)용이며,
+# 점추정치(loss_krw/loss_pct)는 결정론 확정값 그대로다(회귀 테스트로 고정).
+SHOCK_BAND = {
+    "domestic_equity": 0.25,
+    "global_equity": 0.25,
+    "domestic_bond": 0.15,
+    "global_bond": 0.15,
+    "alternatives": 0.20,
+    "cash": 0.0,
+}
+
 
 def run_stress(portfolio: list[dict], scenario: dict | None = None) -> dict:
-    """자산군별 고정 충격을 적용해 포트폴리오 손실액/손실률 계산."""
-    scenario = scenario or SCENARIO_HIGH_RATE_STRONG_USD
+    """단일 시나리오의 자산군별 고정 충격을 적용해 포트폴리오 손실액/손실률 계산.
+
+    부호 규약: loss_krw·loss_pct는 **양수 = 손실**(historical_var 규약과 통일).
+    소비자(assemble_report)가 abs()로 부호를 뒤집을 필요가 없다.
+    """
+    scenario = scenario or SCENARIO_A_HIGH_RATE
+    shocks = scenario["shocks"]
+
+    # 시나리오에 충격이 정의되지 않은 자산군은 조용히 0으로 통과하면 리스크가
+    # 과소평가된다(portfolio_returns와 동일한 방어). cash: 0.0처럼 '의도된 0'은
+    # 시나리오에 명시돼 있으므로 이 검증에 걸리지 않는다.
+    unknown = {p["asset_class"] for p in portfolio} - shocks.keys()
+    if unknown:
+        raise ValueError(
+            f"시나리오 {scenario['name']}에 충격이 정의되지 않은 자산군입니다: {sorted(unknown)}"
+        )
+
     total_value = sum(p["value_krw"] for p in portfolio)
-    loss = 0.0
+    loss = 0.0  # 양수 = 손실
+    loss_low = 0.0   # 완화(충격 ×(1-band)) → 손실 하한
+    loss_high = 0.0  # 심화(충격 ×(1+band)) → 손실 상한
     # 같은 자산군이 여러 종목으로 들어와도 덮어쓰지 않고 합산한다.
     by_asset: dict[str, float] = {}
     for p in portfolio:
         asset_class = p["asset_class"]
-        shock = scenario["shocks"].get(asset_class, 0.0)
-        asset_loss = p["value_krw"] * shock
+        shock = shocks[asset_class]
+        # shock이 음수(하락)면 손실은 양수가 된다.
+        asset_loss = -(p["value_krw"] * shock)
         by_asset[asset_class] = by_asset.get(asset_class, 0.0) + asset_loss
         loss += asset_loss
+        band = SHOCK_BAND[asset_class]
+        bound1 = -(p["value_krw"] * shock * (1 - band))
+        bound2 = -(p["value_krw"] * shock * (1 + band))
+        loss_low += min(bound1, bound2)
+        loss_high += max(bound1, bound2)
     return {
         "scenario": scenario["name"],
         "description": scenario["description"],
+        "reference": scenario.get("reference"),
         "loss_krw": round(loss, 2),
         "loss_pct": round(loss / total_value, 8) if total_value else 0.0,
+        "loss_krw_low": round(loss_low, 2),
+        "loss_krw_high": round(loss_high, 2),
+        "loss_pct_low": round(loss_low / total_value, 8) if total_value else 0.0,
+        "loss_pct_high": round(loss_high / total_value, 8) if total_value else 0.0,
         "by_asset": {k: round(v, 2) for k, v in by_asset.items()},
     }
+
+
+def run_all_stress(
+    portfolio: list[dict], scenarios: list[dict] | None = None
+) -> dict:
+    """기본 시나리오 세트(A 고금리 · B 강달러 · C 코로나)를 모두 적용해 결과를 나란히 반환.
+
+    동일 포트폴리오·동일 시나리오 정의면 결과는 항상 동일하게 재현된다.
+    """
+    scenarios = scenarios or DEFAULT_SCENARIOS
+    return {s["name"]: run_stress(portfolio, s) for s in scenarios}

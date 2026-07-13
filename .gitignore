@@ -10,8 +10,17 @@ __pycache__/
 *.egg-info/
 
 # 데이터 산출물
+# data/returns_real.*(yfinance 파생 실데이터)는 Yahoo Finance 재배포 제약 때문에
+# git에 커밋하지 않는다. R7 현장 시연 오프라인 대응은 발표 전 1회 실행으로
+# 로컬 캐시를 미리 만들어두는 방식으로 처리한다(VVIP_PB_Advisor와 동일 패턴).
 data/*.parquet
 data/*.csv
+data/*.meta.json
+data/chroma/
+
+# RAG 코퍼스 원문 PDF — 저작권상 로컬 전용, git 미포함 (구조·매니페스트만 추적)
+/corpus/**/*.pdf
+!/corpus/**/.gitkeep
 
 # 에디터/OS
 .idea/
