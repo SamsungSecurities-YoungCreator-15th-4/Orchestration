@@ -235,6 +235,8 @@ def test_assemble_report_confidence_interval_absent_falls_back_to_point_estimate
     assert risk["ci_level"] is None
     assert risk["var_1d_krw_low"] is None
     assert risk["var_1d_krw"] == 10
+    assert risk["var_1d_pct_low"] is None
+    assert risk["var_1d_pct"] is None
 
 
 def test_assemble_report_summarizes_multiple_stress_scenarios_deterministically():

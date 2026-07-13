@@ -378,8 +378,12 @@ else:
                     ),
                 ],
                 "VaR (수익률)": [
-                    format_pct_range(risk.get("var_1d_pct_low"), risk.get("var_1d_pct_high")),
-                    format_pct_range(risk.get("var_10d_pct_low"), risk.get("var_10d_pct_high")),
+                    format_pct_range(
+                        risk.get("var_1d_pct_low"), risk.get("var_1d_pct_high"), risk.get("var_1d_pct")
+                    ),
+                    format_pct_range(
+                        risk.get("var_10d_pct_low"), risk.get("var_10d_pct_high"), risk.get("var_10d_pct")
+                    ),
                 ],
                 "CVaR (금액)": [
                     format_range(
@@ -390,8 +394,12 @@ else:
                     ),
                 ],
                 "CVaR (수익률)": [
-                    format_pct_range(risk.get("cvar_1d_pct_low"), risk.get("cvar_1d_pct_high")),
-                    format_pct_range(risk.get("cvar_10d_pct_low"), risk.get("cvar_10d_pct_high")),
+                    format_pct_range(
+                        risk.get("cvar_1d_pct_low"), risk.get("cvar_1d_pct_high"), risk.get("cvar_1d_pct")
+                    ),
+                    format_pct_range(
+                        risk.get("cvar_10d_pct_low"), risk.get("cvar_10d_pct_high"), risk.get("cvar_10d_pct")
+                    ),
                 ],
             }
         )
