@@ -31,6 +31,10 @@ def _compact_stress_scenario(name: str | None, result: dict) -> dict:
         "reference": result.get("reference"),
         "loss_krw": result.get("loss_krw"),
         "loss_pct": result.get("loss_pct"),
+        "loss_krw_low": result.get("loss_krw_low"),
+        "loss_krw_high": result.get("loss_krw_high"),
+        "loss_pct_low": result.get("loss_pct_low"),
+        "loss_pct_high": result.get("loss_pct_high"),
     }
 
 
@@ -65,20 +69,80 @@ def _stress_summary(stress: dict) -> dict:
         "stress_scenario": worst.get("scenario"),
         "stress_loss_krw": worst.get("loss_krw"),
         "stress_loss_pct": worst.get("loss_pct"),
+        "stress_loss_krw_low": worst.get("loss_krw_low"),
+        "stress_loss_krw_high": worst.get("loss_krw_high"),
+        "stress_loss_pct_low": worst.get("loss_pct_low"),
+        "stress_loss_pct_high": worst.get("loss_pct_high"),
         "stress_scenario_count": len(scenarios),
         "stress_scenarios": scenarios,
     }
 
 
+def _ci_bounds(confidence_interval: dict, horizon: str) -> dict:
+    """부트스트랩 신뢰구간(app.engine.metrics.bootstrap_var_cvar_ci) 값을 꺼낸다.
+
+    엔진이 아직 confidence_interval을 안 주는 경우(구버전 metrics)에도
+    안전하게 None으로 채워, 화면이 점추정치로만 표시되도록 한다.
+    """
+    ci = (confidence_interval or {}).get(horizon) or {}
+    return {
+        "var_krw_low": ci.get("var_krw_low"),
+        "var_krw_high": ci.get("var_krw_high"),
+        "cvar_krw_low": ci.get("cvar_krw_low"),
+        "cvar_krw_high": ci.get("cvar_krw_high"),
+        "var_pct_low": ci.get("var_pct_low"),
+        "var_pct_high": ci.get("var_pct_high"),
+        "cvar_pct_low": ci.get("cvar_pct_low"),
+        "cvar_pct_high": ci.get("cvar_pct_high"),
+    }
+
+
+def _drilldown_summary(drilldown: dict) -> list[dict]:
+    """CVaR 자산군별 기여도(tail_contribution)를 기여도 큰 순으로 정렬한 리스트로 정규화한다.
+
+    엔진이 아직 drilldown을 안 주는 경우(구버전 metrics)에도 빈 리스트로
+    안전하게 처리한다.
+    """
+    krw = (drilldown or {}).get("tail_contribution_krw") or {}
+    pct = (drilldown or {}).get("tail_contribution_pct") or {}
+    rows = [
+        {"asset_class": asset_class, "contribution_krw": value, "contribution_pct": pct.get(asset_class)}
+        for asset_class, value in krw.items()
+    ]
+    rows.sort(key=lambda row: row["contribution_krw"] or 0, reverse=True)
+    return rows
+
+
 def _risk_summary(metrics: dict) -> dict:
     horizons = metrics.get("horizons") or {}
     stress = metrics.get("stress") or {}
+    confidence_interval = metrics.get("confidence_interval") or {}
+    ci_1d = _ci_bounds(confidence_interval, "1d")
+    ci_10d = _ci_bounds(confidence_interval, "10d")
     return {
         "confidence": metrics.get("confidence"),
+        "drilldown": _drilldown_summary(metrics.get("drilldown")),
+        "ci_level": confidence_interval.get("ci_level"),
         "var_1d_krw": (horizons.get("1d") or {}).get("var_krw"),
         "cvar_1d_krw": (horizons.get("1d") or {}).get("cvar_krw"),
+        "var_1d_krw_low": ci_1d["var_krw_low"],
+        "var_1d_krw_high": ci_1d["var_krw_high"],
+        "cvar_1d_krw_low": ci_1d["cvar_krw_low"],
+        "cvar_1d_krw_high": ci_1d["cvar_krw_high"],
+        "var_1d_pct_low": ci_1d["var_pct_low"],
+        "var_1d_pct_high": ci_1d["var_pct_high"],
+        "cvar_1d_pct_low": ci_1d["cvar_pct_low"],
+        "cvar_1d_pct_high": ci_1d["cvar_pct_high"],
         "var_10d_krw": (horizons.get("10d") or {}).get("var_krw"),
         "cvar_10d_krw": (horizons.get("10d") or {}).get("cvar_krw"),
+        "var_10d_krw_low": ci_10d["var_krw_low"],
+        "var_10d_krw_high": ci_10d["var_krw_high"],
+        "cvar_10d_krw_low": ci_10d["cvar_krw_low"],
+        "cvar_10d_krw_high": ci_10d["cvar_krw_high"],
+        "var_10d_pct_low": ci_10d["var_pct_low"],
+        "var_10d_pct_high": ci_10d["var_pct_high"],
+        "cvar_10d_pct_low": ci_10d["cvar_pct_low"],
+        "cvar_10d_pct_high": ci_10d["cvar_pct_high"],
         **_stress_summary(stress),
     }
 
