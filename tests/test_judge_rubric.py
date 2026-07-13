@@ -113,8 +113,14 @@ def test_numeric_consistency_ignores_unitless_ordinals_and_counts():
 
 def test_hallucination_pass_and_fail_with_chunk_text():
     passing_llm = _AxisLLM(hallucination_passed=True)
-    assert hallucination(_explanations("VaR 설명"), [VERIFIED_CITATION], passing_llm)[0] is True
+    assert hallucination(
+        _explanations("VaR 설명"),
+        [VERIFIED_CITATION],
+        passing_llm,
+        {AS_OF_DATE},
+    )[0] is True
     assert VERIFIED_CITATION["extra"]["chunk_text"] in passing_llm.prompts[0]
+    assert AS_OF_DATE in passing_llm.prompts[0]
 
     failing_llm = _AxisLLM(hallucination_passed=False)
     passed, reason = hallucination(

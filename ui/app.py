@@ -525,6 +525,12 @@ else:
 
     st.markdown("<br>", unsafe_allow_html=True)
     reproducibility = report.get("reproducibility", {})
+    methodology_ref = reproducibility.get("methodology_ref")
+    methodology_ref_text = (
+        ", ".join(str(ref) for ref in methodology_ref)
+        if isinstance(methodology_ref, list)
+        else str(methodology_ref or "")
+    )
     st.markdown(
         f"""
         <div class="footer-box">
@@ -532,7 +538,7 @@ else:
         <br><br>
         <div class="mono">
         computation_hash: {reproducibility.get('computation_hash')}<br>
-        methodology_ref:&nbsp;&nbsp;{reproducibility.get('methodology_ref')}<br>
+        methodology_ref:&nbsp;&nbsp;{methodology_ref_text}<br>
         trace_id:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{reproducibility.get('trace_id')}
         </div>
         </div>

@@ -168,6 +168,29 @@ def _evidence_summary(citations: list[dict]) -> dict:
     }
 
 
+def _methodology_refs(meta_ref, citations: list[dict]) -> list[str]:
+    """엔진 메타와 실제 검증 인용에서 방법론 문서 ID를 결정론적으로 합친다."""
+    refs: set[str] = set()
+    raw_meta_refs = meta_ref if isinstance(meta_ref, (list, tuple, set)) else [meta_ref]
+    for ref in raw_meta_refs:
+        if isinstance(ref, str) and ref.strip():
+            refs.add(ref.strip().removesuffix(".pdf"))
+
+    for citation in citations:
+        if not isinstance(citation, dict) or citation.get("verified") is not True:
+            continue
+        source = citation.get("source")
+        raw_extra = citation.get("extra")
+        extra = raw_extra if isinstance(raw_extra, dict) else {}
+        if not isinstance(source, str) or not source.strip():
+            continue
+        filename = source.strip().rsplit("/", 1)[-1]
+        if extra.get("category") == "methodology" or filename.startswith("methodology_"):
+            refs.add(filename.removesuffix(".pdf"))
+
+    return sorted(refs)
+
+
 def _warnings(state: RiskState, evidence: dict) -> list[str]:
     warnings: list[str] = []
     judge = state.get("judge") or {}
@@ -224,7 +247,7 @@ def assemble_report(state: RiskState) -> dict:
             "computation_hash": meta.get("computation_hash"),
             "method": meta.get("method"),
             "n_observations": meta.get("n_observations"),
-            "methodology_ref": meta.get("methodology_ref"),
+            "methodology_ref": _methodology_refs(meta.get("methodology_ref"), citations),
             "trace_id": state.get("trace_id"),
             "ips_extraction": state.get("ips_extraction_meta") or {},
             "conflict_policy": state.get("conflict_policy") or {},
