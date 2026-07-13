@@ -162,8 +162,8 @@ def test_prohibited_expression_negated_pass_and_positive_fail():
     assert passed is False
 
 
-def test_prohibited_expression_double_negation_requests_manual_review():
-    explanations = _explanations("수익을 보장하지 않을 수 없습니다.")
+def test_prohibited_expression_ambiguous_negations_request_manual_review():
+    explanations = _explanations("수익을 보장하지 않거나 못 한다고 봅니다.")
     passed, reason = prohibited_expression(explanations)
     assert passed is True
     assert "수동검토" in reason
@@ -171,14 +171,19 @@ def test_prohibited_expression_double_negation_requests_manual_review():
 
 
 def test_prohibited_expression_clear_double_negation_fails():
-    explanations = _explanations(
-        "수익률을 보장하지 않는다고 오해해서는 안 됩니다."
+    texts = (
+        "수익률을 보장하지 않는다고 오해해서는 안 됩니다.",
+        "수익을 보장하지 않을 수 없습니다.",
+        "수익 보장이 아니라고 할 수 없습니다.",
+        "수익을 보장하지 않는다고 착각하지 마십시오.",
     )
-    passed, reason = prohibited_expression(explanations)
+    for text in texts:
+        explanations = _explanations(text)
+        passed, reason = prohibited_expression(explanations)
 
-    assert passed is False
-    assert "명시적 이중부정" in reason
-    assert prohibited_manual_flags(explanations) == []
+        assert passed is False
+        assert "명시적 이중부정" in reason
+        assert prohibited_manual_flags(explanations) == []
 
 
 def test_judge_eval_normal_e2e_passes_with_fake_llm():
