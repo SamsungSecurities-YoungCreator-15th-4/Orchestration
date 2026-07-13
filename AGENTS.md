@@ -97,9 +97,11 @@ START
 | `liquidity_required_krw` | `float \| None` | `extract_ips`가 자연어의 명시적 유동성 필요 금액을 원 단위로 저장 |
 | `market_data_ref` | `dict` | TBD |
 | `ips` | `dict` | TBD |
+| `ips_extraction_meta` | `dict` | `extract_ips`의 모델·seed·프롬프트·입출력 해시 |
 | `conflicts` | `list` | `route_after_conflict_check`가 읽어 분기① 판단 |
+| `conflict_policy` | `dict` | `conflict_check`가 정책 버전·해시·근거 ID 저장 |
 | `conflict_retries` | `int` | `route_after_conflict_check`가 읽어 분기① 판단 (MAX=1) |
-| `approval` | `dict` | TBD (HITL `approval_gate` 관련) |
+| `approval` | `ApprovalRecord` | `load_inputs` draft → UI/CLI reviewed → `approval_gate` locked |
 | `metrics` | `dict` | TBD |
 | `explanations` | `list` | TBD |
 | `citations` | `list` | TBD |
@@ -115,9 +117,16 @@ START
 
 고객 상담용 공개 IPS JSON은 `Name`, `Age`, `Job`, `Goal`, `Asset`, `Return`, `Risk`,
 `Time`, `Tax`, `Liquidity`, `Legal`, `Unique` 12개 필드로 구성한다. `Age="50"`,
-`Goal="시장리스크 진단·대응안을 엔진으로 산출·검증"`, `Asset=50.0`(억 원),
+`Job="자영업자"`, `Goal="시장리스크 진단·대응안을 엔진으로 산출·검증"`, `Asset=50.0`(억 원),
 `Risk="균형형"`은 과제 시나리오 고정값이다. `Unique`는 항상
 `"고금리·강달러 충격"`으로 시작한다.
+
+### 승인·충돌 정책
+
+- `conflict_check`는 `config/ips_policy.yaml`의 버전된 내부 기준과 공식 근거를 사용한다.
+- `severity=block`은 예외 승인할 수 없고, `severity=review`만 사유가 있는 PB 예외 승인을 허용한다.
+- 승인은 `draft → reviewed → locked` 순서이며, locked는 리스크 계산 승인이지 거래 승인이 아니다.
+- 상세 기준과 근거는 [`docs/ips_conflict_policy.md`](docs/ips_conflict_policy.md)를 따른다.
 
 ## 코퍼스 규격
 

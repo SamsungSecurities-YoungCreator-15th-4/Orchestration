@@ -18,6 +18,7 @@ from app.state import (
     FIXED_AGE,
     FIXED_ASSET_EOK,
     FIXED_GOAL,
+    FIXED_JOB,
     FIXED_RISK,
     IPSProfile,
 )
@@ -147,13 +148,14 @@ if not report:
             "상담 내용",
             value=SAMPLE_RAW_INPUT,
             height=150,
-            help="이름·직업·목표 수익 금액·투자기간·세금·유동성·법적 제약 등을 자유롭게 입력하세요.",
+            help="이름·목표 수익 금액·투자기간·세금·유동성·법적 제약 등을 자유롭게 입력하세요. 직업은 자영업자로 고정됩니다.",
         )
-        fixed_cols = st.columns(4)
+        fixed_cols = st.columns(5)
         fixed_cols[0].text_input("Age", value=FIXED_AGE, disabled=True)
-        fixed_cols[1].text_input("Asset (억 원)", value=f"{FIXED_ASSET_EOK:g}", disabled=True)
-        fixed_cols[2].text_input("Risk", value=FIXED_RISK, disabled=True)
-        fixed_cols[3].text_input("Goal", value=FIXED_GOAL, disabled=True)
+        fixed_cols[1].text_input("Job", value=FIXED_JOB, disabled=True)
+        fixed_cols[2].text_input("Asset (억 원)", value=f"{FIXED_ASSET_EOK:g}", disabled=True)
+        fixed_cols[3].text_input("Risk", value=FIXED_RISK, disabled=True)
+        fixed_cols[4].text_input("Goal", value=FIXED_GOAL, disabled=True)
 
         section_title("2. 제안 포트폴리오 비중")
         st.caption("6개 자산군 비중을 퍼센트 단위로 입력하세요. 합계는 100%여야 합니다.")
@@ -211,10 +213,19 @@ if not report:
         )
 
         conflicts = pending.get("conflicts") or []
+        blocking_conflicts = [
+            conflict for conflict in conflicts if conflict.get("severity") == "block"
+        ]
+        review_conflicts = [
+            conflict for conflict in conflicts if conflict.get("severity") == "review"
+        ]
         if conflicts:
-            st.error("IPS 상충 조건이 발견되어 계산 단계로 진행할 수 없습니다.")
+            if blocking_conflicts:
+                st.error("예외 승인할 수 없는 IPS 충돌이 있어 입력 보완이 필요합니다.")
+            else:
+                st.warning("PB의 구체적 사유가 있는 예외 승인 후 리스크 계산만 진행할 수 있습니다.")
             st.dataframe(conflicts, use_container_width=True, hide_index=True)
-        else:
+        if not blocking_conflicts:
             with st.form("pb_approval"):
                 ips = pending.get("ips") or {}
                 unique_text = st.text_input(
@@ -224,11 +235,19 @@ if not report:
                 )
                 approver = st.text_input("PB 승인자", placeholder="PB 이름 또는 사번")
                 note = st.text_area("승인 의견", placeholder="검토 의견을 입력하세요.")
+                exception_reason = ""
+                if review_conflicts:
+                    exception_reason = st.text_area(
+                        "예외 승인 사유 (필수, 10자 이상)",
+                        placeholder="충돌을 인지하고도 리스크 계산이 필요한 이유와 보완 조치를 기록하세요.",
+                    )
                 approve_clicked = st.form_submit_button("PB 승인 후 리스크 분석", type="primary")
 
             if approve_clicked:
                 if not approver.strip():
                     st.error("PB 승인자를 입력해야 합니다.")
+                elif review_conflicts and len(exception_reason.strip()) < 10:
+                    st.error("예외 승인 사유를 10자 이상 입력해야 합니다.")
                 else:
                     try:
                         graph = st.session_state["pending_graph"]
@@ -241,9 +260,15 @@ if not report:
                             {
                                 "ips": reviewed_ips,
                                 "approval": {
-                                    "status": "approved",
+                                    "status": "reviewed",
+                                    "decision": (
+                                        "exception_approved"
+                                        if review_conflicts
+                                        else "approved"
+                                    ),
                                     "approver": approver.strip(),
                                     "note": note.strip(),
+                                    "exception_reason": exception_reason.strip(),
                                 },
                             },
                         )

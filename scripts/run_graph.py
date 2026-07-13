@@ -70,9 +70,27 @@ def main() -> None:
             print("\n  --auto-approve 미지정: 승인 대기 상태로 종료합니다.")
             return
 
+        blocking = [c for c in conflicts if c.get("severity") == "block"]
+        if blocking:
+            rules = ", ".join(c.get("rule", "unknown") for c in blocking)
+            raise SystemExit(f"자동 승인 불가: block 충돌({rules})을 먼저 해소하세요.")
+        has_review = any(c.get("severity") == "review" for c in conflicts)
+
         graph.update_state(
             config,
-            {"approval": {"status": "approved", "approver": "cli-auto", "note": "CLI 자동 승인"}},
+            {
+                "approval": {
+                    "status": "reviewed",
+                    "decision": "exception_approved" if has_review else "approved",
+                    "approver": "cli-auto",
+                    "note": "CLI 자동 승인",
+                    "exception_reason": (
+                        "시연 목적의 리스크 계산에 한해 예외 승인하며 거래 승인이 아님"
+                        if has_review
+                        else ""
+                    ),
+                }
+            },
         )
         print("  ✔ 자동 승인 주입 → 그래프 재개")
         _stream_and_collect(graph, None, config, order)
