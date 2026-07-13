@@ -279,9 +279,47 @@ def test_assemble_report_summarizes_multiple_stress_scenarios_deterministically(
         "B_strong_usd",
     ]
     assert risk["stress_scenarios"][0]["reference"] == "고금리 근거"
-    assert report["reproducibility"]["methodology_ref"] == (
+    assert report["reproducibility"]["methodology_ref"] == [
         "methodology_var_cvar_2026"
-    )
+    ]
+
+
+def test_assemble_report_collects_only_verified_cited_methodologies():
+    state = {
+        **BASE_STATE,
+        "metrics": {
+            **BASE_STATE["metrics"],
+            "meta": {
+                **BASE_STATE["metrics"]["meta"],
+                "methodology_ref": "methodology_var_cvar_2026",
+            },
+        },
+        "citations": [
+            {
+                "source": "methodology_var_cvar_2026.pdf",
+                "verified": True,
+                "extra": {"category": "methodology"},
+            },
+            {
+                "source": "methodology_stress_2026.pdf",
+                "verified": True,
+                "extra": {"category": "methodology"},
+            },
+            {
+                "source": "methodology_unverified_2026.pdf",
+                "verified": False,
+                "extra": {"category": "methodology"},
+            },
+            {"source": "house_view.pdf", "verified": True},
+        ],
+    }
+
+    report = assemble_report(state)["report"]
+
+    assert report["reproducibility"]["methodology_ref"] == [
+        "methodology_stress_2026",
+        "methodology_var_cvar_2026",
+    ]
 
 
 def test_assemble_report_portfolio_summary_is_defensive():

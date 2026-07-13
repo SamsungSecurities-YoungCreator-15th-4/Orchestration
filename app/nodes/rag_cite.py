@@ -32,13 +32,41 @@ MAX_CANDIDATES = 8  # LLM 인용 후보 상한 (프롬프트 지시용)
 # ---------------------------------------------------------------------------
 # 순수 헬퍼 (결정론)
 # ---------------------------------------------------------------------------
-def _build_query(metrics: dict) -> str:
-    """metrics에서 결정론적으로 검색 질의를 만든다."""
-    parts = ["VaR CVaR 리스크 지표 해석", "스트레스 테스트 시나리오"]
-    var_block = metrics.get("var") or {}
-    if var_block:
-        parts.append("신뢰수준 " + " ".join(sorted(str(k) for k in var_block)))
-    return " / ".join(parts)
+def _build_query(topic: str, metrics: dict) -> str:
+    """설명 topic과 metrics에서 결정론적인 전용 검색 질의를 만든다."""
+    if topic == "VaR 해석":
+        parts = [
+            "Historical Simulation VaR CVaR 해석",
+            "신뢰수준 보유기간 관측기간 초과손실",
+        ]
+        confidence = metrics.get("confidence")
+        if isinstance(confidence, (int, float)) and not isinstance(confidence, bool):
+            parts.append(f"신뢰수준 {confidence * 100:g}%")
+        horizons = metrics.get("horizons") or {}
+        if isinstance(horizons, dict) and horizons:
+            parts.append("보유기간 " + " ".join(sorted(str(key) for key in horizons)))
+        n_observations = (metrics.get("meta") or {}).get("n_observations")
+        if isinstance(n_observations, int) and not isinstance(n_observations, bool):
+            parts.append(f"관측기간 {n_observations}거래일")
+        return " / ".join(parts)
+
+    if topic == "스트레스 시나리오":
+        parts = [
+            "Historical Simulation 과거 관측되지 않은 위기 스트레스 테스트 보완",
+            "고금리 강달러 코로나 개별 시나리오 최대 손실 복합 위기 아님",
+        ]
+        stress = metrics.get("stress") or {}
+        if isinstance(stress, dict) and stress:
+            parts.append("시나리오 " + " ".join(sorted(str(key) for key in stress)))
+        return " / ".join(parts)
+
+    if topic == "기준일 및 유의사항":
+        return (
+            "리스크 방법론 기준일 과거 데이터 추정치 한계 / "
+            "투자 권유 아님 원금 수익 보장 아님 실제 결과 차이"
+        )
+
+    return f"리스크 방법론 근거 재검증 / {topic}"
 
 
 def _build_explanations(
@@ -62,9 +90,8 @@ def _build_explanations(
         {
             "topic": "스트레스 시나리오",
             "text": (
-                "고금리·강달러 복합 충격 시나리오는 금리 민감 자산과 "
-                "국내주식의 동반 하락을 가정한 것으로, 역사적 분포 기반 "
-                "VaR가 포착하지 못하는 꼬리 위험을 보완한다."
+                "스트레스 테스트는 Historical VaR의 구조적 한계 — 과거 관측 기간의 "
+                "표본 분포에 담기지 않은 충격을 반영하지 못함 — 을 보완하기 위한 절차다."
             ),
             "revision": revision,
         },
@@ -104,18 +131,33 @@ def parse_candidates(raw: str, chunks: list[dict]) -> list[Citation]:
         return []
 
     source_by_id = {c["chunk_id"]: c.get("source", "") for c in chunks}
+    evidence_by_id = {
+        f"{chunk['chunk_id']}#L{line_no:03d}": {
+            "quote": line.strip(),
+            "chunk_id": chunk["chunk_id"],
+            "source": chunk.get("source", ""),
+        }
+        for chunk in chunks
+        for line_no, line in enumerate(chunk.get("text", "").splitlines(), 1)
+        if line.strip()
+    }
     out: list[Citation] = []
     for it in items:
         if not isinstance(it, dict):
             continue
-        quote = str(it.get("quote", "")).strip()
-        chunk_id = str(it.get("chunk_id", "")).strip()
+        evidence = evidence_by_id.get(str(it.get("evidence_id", "")).strip())
+        quote = evidence["quote"] if evidence else str(it.get("quote", "")).strip()
+        chunk_id = evidence["chunk_id"] if evidence else str(it.get("chunk_id", "")).strip()
         if not quote or not chunk_id:
             continue
         out.append(
             Citation(
                 quote=quote,
-                source=str(it.get("source", "")) or source_by_id.get(chunk_id, ""),
+                source=(
+                    evidence["source"]
+                    if evidence
+                    else str(it.get("source", "")) or source_by_id.get(chunk_id, "")
+                ),
                 chunk_id=chunk_id,
                 claim=str(it.get("claim", "")),
             )
@@ -123,21 +165,37 @@ def parse_candidates(raw: str, chunks: list[dict]) -> list[Citation]:
     return out
 
 
-def _build_prompt(metrics: dict, chunks: list[dict], judge_feedback: str) -> str:
-    chunk_lines = [
-        f"[chunk_id={c['chunk_id']} source={c['source']}]\n{c['text']}" for c in chunks
+def _build_prompt(
+    topic: str,
+    explanation: dict,
+    metrics: dict,
+    chunks: list[dict],
+    judge_feedback: str,
+) -> str:
+    evidence_lines = [
+        (
+            f"[evidence_id={chunk['chunk_id']}#L{line_no:03d} "
+            f"chunk_id={chunk['chunk_id']} source={chunk['source']}]\n{line.strip()}"
+        )
+        for chunk in chunks
+        for line_no, line in enumerate(chunk.get("text", "").splitlines(), 1)
+        if line.strip()
     ]
     feedback_line = f"\n직전 judge 피드백(반영할 것): {judge_feedback}\n" if judge_feedback else ""
     return (
-        "너는 리스크 리포트의 인용 담당자다. 아래 리스크 지표의 수치·주장을 "
-        "뒷받침하는 인용을 근거 청크에서 고른다.\n"
-        "규칙: quote는 반드시 해당 청크 원문에서 글자 그대로(공백 차이만 허용) "
-        "복사한다. 원문에 없는 문장을 지어내면 검증에서 탈락한다.\n"
+        "너는 리스크 리포트의 인용 담당자다. 아래 단일 topic 설명의 수치·주장을 "
+        "뒷받침하는 인용을 이 topic 전용 근거 청크에서만 고른다.\n"
+        "규칙: 설명문의 각 실질적 주장을 뒷받침하는 evidence_id를 아래 근거 줄에서 "
+        "고른다. evidence_id를 만들거나 서로 다른 줄을 합치지 않는다.\n"
+        f"모든 claim은 정확히 {json.dumps(topic, ensure_ascii=False)}로 출력하라. "
+        "근거가 없으면 무관한 인용을 만들지 말고 빈 배열 []을 출력하라.\n"
         f"최대 {MAX_CANDIDATES}개. 다음 JSON 배열만 출력하라: "
-        '[{"claim": "...", "quote": "...", "chunk_id": "...", "source": "..."}]\n'
+        '[{"claim": "...", "evidence_id": "..."}]\n'
         f"{feedback_line}\n"
+        f"## 설명 topic\n{topic}\n\n"
+        f"## 설명문\n{explanation.get('text', '')}\n\n"
         f"## 리스크 지표\n{json.dumps(metrics, ensure_ascii=False, default=str)}\n\n"
-        "## 근거 청크\n" + "\n\n".join(chunk_lines)
+        "## 근거 줄\n" + "\n\n".join(evidence_lines)
     )
 
 
@@ -172,19 +230,7 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
             log.warning("RAG 검색 불가 — 폴백(빈 인용): %s", e)
             return {"explanations": explanations, "citations": []}
 
-    # --- 2) 근거 청크 검색 (임베딩 API·Chroma 쿼리 — 네트워크 오류 가능) ---
-    from app.rag.retriever import retrieve_chunks
-
-    try:
-        chunks = retrieve_chunks(retriever, _build_query(metrics))
-    except Exception as e:
-        log.warning("RAG 검색 중 오류 — 폴백(빈 인용): %s", e)
-        return {"explanations": explanations, "citations": []}
-    if not chunks:
-        log.warning("검색 결과 청크 없음 — 폴백(빈 인용)")
-        return {"explanations": explanations, "citations": []}
-
-    # --- 3) LLM 인용 후보 (미주입 시 팩토리; 실패하면 폴백) ---
+    # --- 2) LLM 준비 ---
     if llm is None:
         try:
             from app.llm.client import get_llm
@@ -194,33 +240,70 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
             log.warning("LLM 구성 불가 — 폴백(빈 인용): %s", e)
             return {"explanations": explanations, "citations": []}
 
-    try:
-        raw = _llm_text(llm.invoke(_build_prompt(metrics, chunks, judge_feedback)))
-    except Exception as e:
-        log.warning("LLM 호출 실패 — 폴백(빈 인용): %s", e)
-        return {"explanations": explanations, "citations": []}
+    # --- 3) topic별 검색 → 후보 생성 → 해당 검색 근거 안에서 검증 ---
+    from app.rag.retriever import retrieve_chunks
 
-    candidates = parse_candidates(raw, chunks)
+    all_verified: list[Citation] = []
+    for explanation in explanations:
+        topic = str(explanation.get("topic", "")).strip()
+        query = _build_query(topic, metrics)
+        try:
+            chunks = retrieve_chunks(retriever, query)
+        except Exception as e:
+            log.warning("topic=%s RAG 검색 중 오류 — 해당 topic 건너뜀: %s", topic, e)
+            continue
+        if not chunks:
+            log.warning("topic=%s 검색 결과 청크 없음 — 해당 topic 건너뜀", topic)
+            continue
 
-    # --- 4) 결정론 검증 — 통과분만 state에 기록 ---
-    verified, rejected = verify_citations(candidates, chunks)
-    chunk_text_by_id = {
-        chunk.get("chunk_id"): chunk.get("text", "")
-        for chunk in chunks
-        if chunk.get("chunk_id")
-    }
-    for citation in verified:
-        citation.extra = {
-            **citation.extra,
-            "chunk_text": chunk_text_by_id.get(citation.chunk_id, ""),
+        try:
+            raw = _llm_text(
+                llm.invoke(_build_prompt(topic, explanation, metrics, chunks, judge_feedback))
+            )
+        except Exception as e:
+            log.warning("topic=%s LLM 호출 실패 — 해당 topic 건너뜀: %s", topic, e)
+            continue
+
+        candidates = parse_candidates(raw, chunks)
+        for candidate in candidates:
+            llm_claim = candidate.claim
+            candidate.claim = topic
+            if llm_claim and llm_claim != topic:
+                candidate.extra = {**candidate.extra, "llm_claim": llm_claim}
+
+        verified, rejected = verify_citations(candidates, chunks)
+        chunk_by_id = {
+            chunk.get("chunk_id"): chunk
+            for chunk in chunks
+            if chunk.get("chunk_id")
         }
-    for r in rejected:
-        log.warning(
-            "인용 탈락: chunk_id=%s source=%s — %s (quote=%.60s…)",
-            r["chunk_id"], r["source"], r["reason"], r["quote"],
-        )
+        for citation in verified:
+            chunk = chunk_by_id.get(citation.chunk_id) or {}
+            citation.extra = {
+                **citation.extra,
+                "chunk_text": chunk.get("text", ""),
+                "category": chunk.get("category", ""),
+            }
+        all_verified.extend(verified)
+        for rejected_citation in rejected:
+            log.warning(
+                "topic=%s 인용 탈락: chunk_id=%s source=%s — %s (quote=%.60s…)",
+                topic,
+                rejected_citation["chunk_id"],
+                rejected_citation["source"],
+                rejected_citation["reason"],
+                rejected_citation["quote"],
+            )
+
+    unique_verified: list[Citation] = []
+    seen = set()
+    for citation in all_verified:
+        key = (citation.claim, citation.chunk_id, citation.quote)
+        if key not in seen:
+            seen.add(key)
+            unique_verified.append(citation)
 
     return {
         "explanations": explanations,
-        "citations": [c.to_dict() for c in verified],  # 검증 통과분만
+        "citations": [citation.to_dict() for citation in unique_verified],
     }

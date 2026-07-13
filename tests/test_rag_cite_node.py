@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.nodes.judge_eval import judge_eval
-from app.nodes.rag_cite import parse_candidates, rag_cite
+from app.nodes.rag_cite import _build_query, parse_candidates, rag_cite
 
 REAL_SENTENCE = "스트레스 테스트는 역사적 VaR가 포착하지 못하는 꼬리 위험을 보완한다."
 
@@ -78,11 +78,16 @@ def test_only_verified_citations_recorded():
     out = rag_cite(state, llm=_FakeLLM(), retriever=_FakeRetriever())
 
     citations = out["citations"]
-    assert len(citations) == 1  # 환각 인용은 기록되지 않음
-    assert citations[0]["quote"] == REAL_SENTENCE
-    assert citations[0]["verified"] is True
-    assert citations[0]["chunk_id"] == "doc_b.pdf::0003"
-    assert citations[0]["extra"]["chunk_text"] == REAL_SENTENCE
+    assert len(citations) == 3  # topic 3개 각각에서 환각 후보는 제거됨
+    assert all(citation["quote"] == REAL_SENTENCE for citation in citations)
+    assert all(citation["verified"] is True for citation in citations)
+    assert all(citation["chunk_id"] == "doc_b.pdf::0003" for citation in citations)
+    assert all(citation["extra"]["chunk_text"] == REAL_SENTENCE for citation in citations)
+    assert {citation["claim"] for citation in citations} == {
+        "VaR 해석",
+        "스트레스 시나리오",
+        "기준일 및 유의사항",
+    }
     disclaimer = next(e for e in out["explanations"] if e["topic"] == "기준일 및 유의사항")
     assert "2026-07-03" in disclaimer["text"]
     assert "보장하지 않습니다" in disclaimer["text"]
@@ -117,7 +122,7 @@ def test_rerun_overwrites_not_accumulates():
     out1 = rag_cite(state, llm=_FakeLLM(), retriever=_FakeRetriever())
     out2 = rag_cite(state, llm=_FakeLLM(), retriever=_FakeRetriever())
     # 재실행해도 누적되지 않고 같은 크기로 덮어쓴다
-    assert len(out1["citations"]) == len(out2["citations"]) == 1
+    assert len(out1["citations"]) == len(out2["citations"]) == 4
     # judge 피드백이 설명에 반영된다
     assert any(e["topic"] == "재작성 반영" for e in out1["explanations"])
     assert all(e["revision"] == 2 for e in out1["explanations"])
@@ -147,6 +152,35 @@ def test_parse_candidates_bracket_prefix_safe():
     assert got[0].quote == "본문"
 
 
+def test_parse_candidates_resolves_evidence_id_to_exact_pdf_line():
+    chunks = [
+        {
+            "chunk_id": "methodology.pdf::0001",
+            "source": "methodology.pdf",
+            "text": "현\n재 포트폴리오에 독립 적용한다.",
+        }
+    ]
+    raw = json.dumps(
+        [
+            {
+                "claim": "근거 선택",
+                "evidence_id": "methodology.pdf::0001#L002",
+            },
+            {
+                "claim": "조작된 근거",
+                "evidence_id": "methodology.pdf::0001#L999",
+            },
+        ],
+        ensure_ascii=False,
+    )
+
+    got = parse_candidates(raw, chunks)
+
+    assert len(got) == 1
+    assert got[0].quote == "재 포트폴리오에 독립 적용한다."
+    assert got[0].chunk_id == "methodology.pdf::0001"
+
+
 class _BrokenRetriever:
     """검색 중 네트워크류 예외를 던지는 fake."""
 
@@ -172,3 +206,100 @@ def test_none_retriever_result_falls_back():
     """retriever가 None을 반환해도 TypeError 없이 폴백한다(리뷰 반영)."""
     out = rag_cite({"metrics": {}}, llm=_FakeLLM(), retriever=_NoneRetriever())
     assert out["citations"] == []
+
+
+VAR_SENTENCE = "VaR은 99% 신뢰수준과 1일 보유기간을 기준으로 산출한다."
+DISCLAIMER_SENTENCE = "과거 데이터 기반 추정치는 실제 결과와 다를 수 있다."
+
+
+class _TopicRetriever:
+    def __init__(self):
+        self.queries: list[str] = []
+
+    def invoke(self, query: str):
+        self.queries.append(query)
+        if "스트레스 테스트" in query:
+            return [
+                _FakeDoc(
+                    REAL_SENTENCE,
+                    {
+                        "chunk_id": "methodology_stress_2026.pdf::0004",
+                        "source": "methodology_stress_2026.pdf",
+                        "category": "methodology",
+                    },
+                )
+            ]
+        if "Historical Simulation" in query:
+            return [
+                _FakeDoc(
+                    VAR_SENTENCE,
+                    {
+                        "chunk_id": "methodology_var_cvar_2026.pdf::0003",
+                        "source": "methodology_var_cvar_2026.pdf",
+                        "category": "methodology",
+                    },
+                )
+            ]
+        return [
+            _FakeDoc(
+                DISCLAIMER_SENTENCE,
+                {
+                    "chunk_id": "methodology_var_cvar_2026.pdf::0009",
+                    "source": "methodology_var_cvar_2026.pdf",
+                    "category": "methodology",
+                },
+            )
+        ]
+
+
+class _TopicLLM:
+    def __init__(self):
+        self.prompts: list[str] = []
+
+    def invoke(self, prompt: str):
+        self.prompts.append(prompt)
+        if "methodology_stress_2026.pdf::0004" in prompt:
+            quote = REAL_SENTENCE
+            chunk_id = "methodology_stress_2026.pdf::0004"
+            source = "methodology_stress_2026.pdf"
+        elif "methodology_var_cvar_2026.pdf::0003" in prompt:
+            quote = VAR_SENTENCE
+            chunk_id = "methodology_var_cvar_2026.pdf::0003"
+            source = "methodology_var_cvar_2026.pdf"
+        else:
+            quote = DISCLAIMER_SENTENCE
+            chunk_id = "methodology_var_cvar_2026.pdf::0009"
+            source = "methodology_var_cvar_2026.pdf"
+        return json.dumps(
+            [{"claim": "LLM 자유 형식 주장", "quote": quote, "chunk_id": chunk_id, "source": source}],
+            ensure_ascii=False,
+        )
+
+
+def test_topic_queries_retrieve_and_verify_independently():
+    metrics = {
+        "confidence": 0.99,
+        "horizons": {"1d": {}, "10d": {}},
+        "stress": {"A_high_rate": {}, "C_covid": {}},
+        "meta": {"n_observations": 1250},
+    }
+    retriever = _TopicRetriever()
+    llm = _TopicLLM()
+
+    out = rag_cite({"metrics": metrics}, llm=llm, retriever=retriever)
+
+    assert len(retriever.queries) == 3
+    assert retriever.queries == [
+        _build_query("VaR 해석", metrics),
+        _build_query("스트레스 시나리오", metrics),
+        _build_query("기준일 및 유의사항", metrics),
+    ]
+    assert len(set(retriever.queries)) == 3
+    assert len(llm.prompts) == 3
+    assert "methodology_stress_2026.pdf::0004" not in llm.prompts[0]
+    assert "methodology_var_cvar_2026.pdf::0003" not in llm.prompts[1]
+
+    by_topic = {citation["claim"]: citation for citation in out["citations"]}
+    assert by_topic["VaR 해석"]["source"] == "methodology_var_cvar_2026.pdf"
+    assert by_topic["스트레스 시나리오"]["source"] == "methodology_stress_2026.pdf"
+    assert all(citation["extra"]["category"] == "methodology" for citation in out["citations"])

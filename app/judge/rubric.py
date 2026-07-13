@@ -177,7 +177,12 @@ def _run_llm_axis(llm, *, axis: str, instruction: str, payload: dict) -> tuple[b
         return False, f"LLM Judge 호출 실패: {type(exc).__name__}: {exc}"
 
 
-def hallucination(explanations: list, citations: list, llm) -> tuple[bool, str]:
+def hallucination(
+    explanations: list,
+    citations: list,
+    llm,
+    expected_dates: set[str] | None = None,
+) -> tuple[bool, str]:
     evidence = [
         {
             "claim": citation.get("claim", ""),
@@ -193,10 +198,18 @@ def hallucination(explanations: list, citations: list, llm) -> tuple[bool, str]:
         llm,
         axis="hallucination",
         instruction=(
-            "설명문의 실질적 주장 중 검증된 인용문 또는 해당 청크 원문으로 "
-            "뒷받침되지 않는 주장이 하나라도 있으면 fail한다."
+            "설명문의 금융·방법론 주장 중 검증된 인용문 또는 해당 청크 원문으로 "
+            "뒷받침되지 않는 주장이 하나라도 있으면 fail한다. 단, deterministic_context의 "
+            "expected_dates에 있는 기준일은 state에서 검증된 값이며, 투자 권유·수익 보장이 "
+            "아니라는 의무 면책문은 외부 사실 주장이 아니므로 인용 부재만으로 fail하지 않는다."
         ),
-        payload={"explanations": _explanation_text(explanations), "citations": evidence},
+        payload={
+            "explanations": _explanation_text(explanations),
+            "citations": evidence,
+            "deterministic_context": {
+                "expected_dates": sorted(expected_dates or set()),
+            },
+        },
     )
 
 
@@ -290,7 +303,12 @@ def evaluate_rubric(
     results = {
         "source_validity": source_validity(citations, strict_citation_gate),
         "numeric_consistency": numeric_consistency(explanations, metrics, expected_dates),
-        "hallucination": hallucination(explanations, citations, llm),
+        "hallucination": hallucination(
+            explanations,
+            citations,
+            llm,
+            expected_dates,
+        ),
         "false_precision": false_precision(explanations, llm),
         "disclaimer": disclaimer(explanations, expected_dates),
         "prohibited_expression": prohibited_expression(explanations),
