@@ -16,7 +16,11 @@ from app.nodes.load_inputs import (
     SAMPLE_RAW_INPUT,
     portfolio_from_percentages,
 )
-from app.observability.langsmith import prepare_trace_invocation, tracing_scope
+from app.observability.langsmith import (
+    merge_observability,
+    prepare_trace_invocation,
+    tracing_scope,
+)
 from app.state import (
     FIXED_AGE,
     FIXED_ASSET_EOK,
@@ -325,7 +329,10 @@ if not report:
                             trace_id=pending.get("trace_id"),
                         )
                         resume_run_config = dict(pending.get("run_config") or {})
-                        resume_run_config["observability"] = resume_invocation.observability
+                        resume_run_config["observability"] = merge_observability(
+                            resume_run_config.get("observability"),
+                            resume_invocation.observability,
+                        )
                         checkpoint_config = {
                             "configurable": resume_invocation.config["configurable"],
                         }
@@ -578,6 +585,19 @@ else:
         """,
         unsafe_allow_html=True,
     )
-    trace_url = governance.get("langsmith_trace_url")
-    if isinstance(trace_url, str) and trace_url.startswith("https://"):
-        st.link_button("LangSmith trace 열기", trace_url)
+    raw_trace_urls = governance.get("langsmith_trace_urls")
+    trace_urls = raw_trace_urls if isinstance(raw_trace_urls, dict) else {}
+    valid_trace_urls = [
+        (phase, url)
+        for phase, url in trace_urls.items()
+        if isinstance(url, str) and url.startswith("https://")
+    ]
+    if valid_trace_urls:
+        columns = st.columns(len(valid_trace_urls))
+        phase_labels = {"input": "입력·IPS", "analysis": "리스크·Judge"}
+        for column, (phase, url) in zip(columns, valid_trace_urls, strict=True):
+            column.link_button(f"LangSmith {phase_labels.get(phase, phase)} trace", url)
+    else:
+        trace_url = governance.get("langsmith_trace_url")
+        if isinstance(trace_url, str) and trace_url.startswith("https://"):
+            st.link_button("LangSmith trace 열기", trace_url)

@@ -1,16 +1,24 @@
 """LangSmith 연동·감사정보 단위 테스트 — 네트워크와 실제 API key 불필요."""
 import json
+import os
 import sys
 import uuid
 from pathlib import Path
 
+from dotenv import dotenv_values
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.llm.audit import prompt_hash_record
+from app.graph import build_graph
 from app.nodes.assemble_report import assemble_report
 from app.nodes.judge_eval import _AuditedLLM, _named_prompts, judge_eval
 from app.nodes.load_inputs import load_inputs
-from app.observability.langsmith import langsmith_enabled, prepare_trace_invocation
+from app.observability.langsmith import (
+    langsmith_enabled,
+    merge_observability,
+    prepare_trace_invocation,
+)
 
 
 class _PassingLLM:
@@ -80,6 +88,8 @@ def test_enabled_invocation_connects_trace_id_and_root_run(monkeypatch):
     monkeypatch.setenv("LANGSMITH_ENDPOINT", "https://apac.api.smith.langchain.com")
     monkeypatch.setenv("LANGSMITH_API_KEY", "test-only-key")
     monkeypatch.setenv("LANGSMITH_PROJECT", "Orchestration_Team4")
+    monkeypatch.delenv("LANGSMITH_HIDE_INPUTS", raising=False)
+    monkeypatch.delenv("LANGSMITH_HIDE_OUTPUTS", raising=False)
     monkeypatch.setattr("app.observability.langsmith.uuid.uuid4", lambda: fixed_run_id)
     monkeypatch.setattr(
         "app.observability.langsmith._get_run_url",
@@ -97,6 +107,48 @@ def test_enabled_invocation_connects_trace_id_and_root_run(monkeypatch):
     assert invocation.config["metadata"]["trace_id"] == "run-domain-trace"
     assert invocation.observability["langsmith_run_id"] == str(fixed_run_id)
     assert invocation.observability["langsmith_trace_url"].endswith("/1234")
+    assert invocation.observability["hide_inputs"] is True
+    assert invocation.observability["hide_outputs"] is True
+    assert os.environ["LANGSMITH_HIDE_INPUTS"] == "true"
+    assert os.environ["LANGSMITH_HIDE_OUTPUTS"] == "true"
+    assert invocation.observability["phases"]["analysis"]["langsmith_run_id"] == str(
+        fixed_run_id
+    )
+
+
+def test_env_example_is_opt_in_and_masks_financial_payloads():
+    values = dotenv_values(Path(__file__).resolve().parents[1] / ".env.example")
+
+    assert values["LANGSMITH_TRACING"] == "false"
+    assert values["LANGSMITH_HIDE_INPUTS"] == "true"
+    assert values["LANGSMITH_HIDE_OUTPUTS"] == "true"
+
+
+def test_observability_merge_preserves_input_and_analysis_traces():
+    input_observability = {
+        "phase": "input",
+        "langsmith_run_id": "input-run",
+        "langsmith_trace_url": "https://smith.example/input",
+    }
+    analysis_observability = {
+        "phase": "analysis",
+        "langsmith_run_id": "analysis-run",
+        "langsmith_trace_url": "https://smith.example/analysis",
+    }
+
+    merged = merge_observability(input_observability, analysis_observability)
+
+    assert merged["langsmith_trace_url"].endswith("/analysis")
+    assert merged["phases"] == {
+        "analysis": {
+            "langsmith_run_id": "analysis-run",
+            "langsmith_trace_url": "https://smith.example/analysis",
+        },
+        "input": {
+            "langsmith_run_id": "input-run",
+            "langsmith_trace_url": "https://smith.example/input",
+        },
+    }
 
 
 def test_observability_does_not_change_config_hash():
@@ -176,6 +228,18 @@ def test_judge_failure_adds_trace_metadata_and_report_audit(monkeypatch):
     state["run_config"]["observability"] = {
         "langsmith_project": "Orchestration_Team4",
         "langsmith_trace_url": "https://smith.example/trace/judge",
+        "hide_inputs": True,
+        "hide_outputs": True,
+        "phases": {
+            "input": {
+                "langsmith_run_id": "input-run",
+                "langsmith_trace_url": "https://smith.example/trace/input",
+            },
+            "analysis": {
+                "langsmith_run_id": "analysis-run",
+                "langsmith_trace_url": "https://smith.example/trace/judge",
+            },
+        },
     }
 
     judged = judge_eval(state, llm=_PassingLLM())
@@ -186,6 +250,82 @@ def test_judge_failure_adds_trace_metadata_and_report_audit(monkeypatch):
     assert "judge:failed" in captured["tags"]
     assert report["governance"]["trace_id"] == "run-test"
     assert report["governance"]["langsmith_trace_url"].endswith("/judge")
+    assert report["governance"]["langsmith_trace_urls"] == {
+        "analysis": "https://smith.example/trace/judge",
+        "input": "https://smith.example/trace/input",
+    }
+    assert report["governance"]["langsmith_privacy"] == {
+        "hide_inputs": True,
+        "hide_outputs": True,
+    }
     assert report["governance"]["model_versions"]["judge_eval"]["model"] == "gpt-4o-test"
     assert report["governance"]["prompt_hashes"]["judge_eval"]
     assert report["reproducibility"]["computation_hash"] == "metric-hash"
+
+
+def test_hitl_resume_keeps_both_phase_trace_links(monkeypatch):
+    monkeypatch.setenv("LANGSMITH_TRACING", "false")
+    for name in (
+        "AZURE_OPENAI_API_KEY",
+        "AZURE_OPENAI_ENDPOINT",
+        "AZURE_OPENAI_DEPLOYMENT",
+        "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
+    ):
+        monkeypatch.setenv(name, "")
+
+    graph = build_graph()
+    config = {"configurable": {"thread_id": "trace-history-hitl"}}
+    input_observability = {
+        "phase": "input",
+        "langsmith_run_id": "input-run",
+        "langsmith_trace_url": "https://smith.example/input",
+        "phases": {
+            "input": {
+                "langsmith_run_id": "input-run",
+                "langsmith_trace_url": "https://smith.example/input",
+            }
+        },
+    }
+    list(
+        graph.stream(
+            {
+                "trace_id": "run-hitl-test",
+                "run_config": {"observability": input_observability},
+                "demo_options": {"offline": True},
+            },
+            config,
+            stream_mode="updates",
+        )
+    )
+    snapshot = graph.get_state(config)
+    assert "approval_gate" in snapshot.next
+
+    analysis_observability = {
+        "phase": "analysis",
+        "langsmith_run_id": "analysis-run",
+        "langsmith_trace_url": "https://smith.example/analysis",
+    }
+    run_config = dict(snapshot.values["run_config"])
+    run_config["observability"] = merge_observability(
+        run_config.get("observability"),
+        analysis_observability,
+    )
+    graph.update_state(
+        config,
+        {
+            "run_config": run_config,
+            "approval": {
+                "status": "reviewed",
+                "decision": "approved",
+                "approver": "test-pb",
+                "note": "HITL trace 이력 테스트",
+            },
+        },
+    )
+    list(graph.stream(None, config, stream_mode="updates"))
+
+    governance = graph.get_state(config).values["report"]["governance"]
+    assert governance["langsmith_trace_urls"] == {
+        "analysis": "https://smith.example/analysis",
+        "input": "https://smith.example/input",
+    }

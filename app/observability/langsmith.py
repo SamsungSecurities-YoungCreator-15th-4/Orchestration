@@ -14,6 +14,13 @@ log = logging.getLogger(__name__)
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
+def _env_flag(name: str, *, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in _TRUTHY
+
+
 @dataclass(frozen=True)
 class TraceInvocation:
     """그래프 한 번의 stream 호출에 필요한 trace 설정."""
@@ -28,9 +35,42 @@ class TraceInvocation:
 
 def langsmith_enabled() -> bool:
     """명시적 tracing 설정과 API key가 모두 있을 때만 원격 추적을 켠다."""
-    tracing = os.environ.get("LANGSMITH_TRACING", "").strip().lower() in _TRUTHY
+    tracing = _env_flag("LANGSMITH_TRACING")
     required = ("LANGSMITH_API_KEY", "LANGSMITH_ENDPOINT", "LANGSMITH_PROJECT")
     return tracing and all(os.environ.get(name, "").strip() for name in required)
+
+
+def merge_observability(previous, current) -> dict:
+    """HITL 전후 phase trace를 잃지 않고 최신 실행정보와 합친다."""
+    previous = previous if isinstance(previous, dict) else {}
+    current = current if isinstance(current, dict) else {}
+    phases: dict[str, dict] = {}
+    for source in (previous, current):
+        raw_phases = source.get("phases")
+        if isinstance(raw_phases, dict):
+            phases.update(
+                {
+                    str(name): dict(value)
+                    for name, value in raw_phases.items()
+                    if isinstance(value, dict)
+                }
+            )
+        phase = source.get("phase")
+        if isinstance(phase, str) and phase:
+            phases[phase] = {
+                "langsmith_run_id": source.get("langsmith_run_id"),
+                "langsmith_trace_url": source.get("langsmith_trace_url"),
+            }
+    phase_order = {"input": 0, "analysis": 1}
+    ordered_phases = sorted(
+        phases,
+        key=lambda name: (phase_order.get(name, 2), name),
+    )
+    return {
+        **previous,
+        **current,
+        "phases": {name: phases[name] for name in ordered_phases},
+    }
 
 
 def _get_run_url(run_id: uuid.UUID, *, endpoint: str, api_key: str, project: str) -> str | None:
@@ -58,6 +98,10 @@ def prepare_trace_invocation(
     사용할 수 있게 한다. 비밀값은 반환 dict 어디에도 넣지 않는다.
     """
     enabled = langsmith_enabled()
+    if enabled:
+        # 기존 로컬 .env에 마스킹 키가 없어도 금융 상담 payload를 기본 전송하지 않는다.
+        os.environ.setdefault("LANGSMITH_HIDE_INPUTS", "true")
+        os.environ.setdefault("LANGSMITH_HIDE_OUTPUTS", "true")
     project = os.environ.get("LANGSMITH_PROJECT", "").strip() or None
     config = dict(base_config)
     config.pop("run_id", None)
@@ -67,8 +111,11 @@ def prepare_trace_invocation(
         "langsmith_project": project,
         "langsmith_run_id": None,
         "langsmith_trace_url": None,
+        "hide_inputs": _env_flag("LANGSMITH_HIDE_INPUTS", default=True),
+        "hide_outputs": _env_flag("LANGSMITH_HIDE_OUTPUTS", default=True),
         "phase": phase,
     }
+    observability = merge_observability({}, observability)
     if not enabled:
         return TraceInvocation(
             config=config,
@@ -107,6 +154,7 @@ def prepare_trace_invocation(
             "langsmith_trace_url": trace_url,
         }
     )
+    observability = merge_observability({}, observability)
     return TraceInvocation(
         config=config,
         trace_id=correlation_id,

@@ -49,7 +49,7 @@ def main() -> None:
     args = parser.parse_args()
 
     from app.graph import build_graph
-    from app.observability.langsmith import prepare_trace_invocation
+    from app.observability.langsmith import merge_observability, prepare_trace_invocation
 
     graph = build_graph()
     config = {"configurable": {"thread_id": THREAD_ID}}
@@ -95,7 +95,10 @@ def main() -> None:
             trace_id=snapshot.values.get("trace_id"),
         )
         resume_run_config = dict(snapshot.values.get("run_config") or {})
-        resume_run_config["observability"] = resume_invocation.observability
+        resume_run_config["observability"] = merge_observability(
+            resume_run_config.get("observability"),
+            resume_invocation.observability,
+        )
         checkpoint_config = {
             "configurable": resume_invocation.config["configurable"],
         }

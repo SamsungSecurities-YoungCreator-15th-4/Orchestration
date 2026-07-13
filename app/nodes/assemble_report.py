@@ -215,6 +215,22 @@ def _audit_summary(state: RiskState) -> dict:
     llm_audit = raw_llm_audit if isinstance(raw_llm_audit, dict) else {}
     raw_extraction = state.get("ips_extraction_meta")
     extraction = raw_extraction if isinstance(raw_extraction, dict) else {}
+    raw_phases = observability.get("phases")
+    phases = raw_phases if isinstance(raw_phases, dict) else {}
+    phase_order = {"input": 0, "analysis": 1}
+    trace_urls = {
+        str(phase): details.get("langsmith_trace_url")
+        for phase, details in sorted(
+            phases.items(),
+            key=lambda item: (
+                phase_order.get(str(item[0]), 2),
+                str(item[0]),
+            ),
+        )
+        if isinstance(details, dict)
+        and isinstance(details.get("langsmith_trace_url"), str)
+        and details["langsmith_trace_url"]
+    }
 
     model_versions = {
         "extract_ips": {
@@ -241,7 +257,12 @@ def _audit_summary(state: RiskState) -> dict:
     return {
         "trace_id": state.get("trace_id"),
         "langsmith_trace_url": observability.get("langsmith_trace_url"),
+        "langsmith_trace_urls": trace_urls,
         "langsmith_project": observability.get("langsmith_project"),
+        "langsmith_privacy": {
+            "hide_inputs": observability.get("hide_inputs") is True,
+            "hide_outputs": observability.get("hide_outputs") is True,
+        },
         "model_versions": model_versions,
         "prompt_hashes": prompt_hashes,
     }
