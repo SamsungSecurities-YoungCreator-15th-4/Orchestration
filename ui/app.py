@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path
 
 import streamlit as st
+from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -15,6 +16,11 @@ from app.nodes.load_inputs import (
     SAMPLE_RAW_INPUT,
     portfolio_from_percentages,
 )
+from app.observability.langsmith import (
+    merge_observability,
+    prepare_trace_invocation,
+    tracing_scope,
+)
 from app.state import (
     FIXED_AGE,
     FIXED_ASSET_EOK,
@@ -23,6 +29,9 @@ from app.state import (
     FIXED_RISK,
     IPSProfile,
 )
+
+ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(ROOT / ".env")
 
 st.set_page_config(page_title="재현가능·설명가능 리스크 리포트 엔진", layout="wide")
 st.markdown(
@@ -229,21 +238,30 @@ if not report:
         try:
             portfolio = portfolio_from_percentages(percentages)
             graph = build_graph()
-            config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+            invocation = prepare_trace_invocation(
+                {"configurable": {"thread_id": str(uuid.uuid4())}},
+                phase="input",
+            )
+            payload = {
+                "raw_input": raw_input,
+                "portfolio": portfolio,
+                "demo_options": {
+                    "force_judge_fail": int(force_judge_fail),
+                    "force_conflict": with_conflict,
+                },
+                "run_config": {"observability": invocation.observability},
+            }
+            if invocation.trace_id:
+                payload["trace_id"] = invocation.trace_id
             with st.spinner("gpt-4o로 IPS를 추출하고 충돌을 검사하는 중..."):
-                for _ in graph.stream(
-                    {
-                        "raw_input": raw_input,
-                        "portfolio": portfolio,
-                        "demo_options": {
-                            "force_judge_fail": int(force_judge_fail),
-                            "force_conflict": with_conflict,
-                        },
-                    },
-                    config,
-                    stream_mode="updates",
-                ):
-                    pass
+                with tracing_scope(invocation):
+                    for _ in graph.stream(
+                        payload,
+                        invocation.config,
+                        stream_mode="updates",
+                    ):
+                        pass
+            config = invocation.config
             snapshot = graph.get_state(config)
             if not (snapshot.next and "approval_gate" in snapshot.next):
                 raise RuntimeError("그래프가 PB 승인 게이트에서 정지하지 않았습니다.")
@@ -305,12 +323,26 @@ if not report:
                     try:
                         graph = st.session_state["pending_graph"]
                         config = st.session_state["pending_config"]
+                        resume_invocation = prepare_trace_invocation(
+                            config,
+                            phase="analysis",
+                            trace_id=pending.get("trace_id"),
+                        )
+                        resume_run_config = dict(pending.get("run_config") or {})
+                        resume_run_config["observability"] = merge_observability(
+                            resume_run_config.get("observability"),
+                            resume_invocation.observability,
+                        )
+                        checkpoint_config = {
+                            "configurable": resume_invocation.config["configurable"],
+                        }
                         reviewed_ips = IPSProfile.model_validate(
                             {**ips, "Unique": unique_text}
                         ).model_dump()
                         graph.update_state(
-                            config,
+                            checkpoint_config,
                             {
+                                "run_config": resume_run_config,
                                 "ips": reviewed_ips,
                                 "approval": {
                                     "status": "reviewed",
@@ -326,9 +358,16 @@ if not report:
                             },
                         )
                         with st.spinner("승인된 포트폴리오의 리스크를 분석하는 중..."):
-                            for _ in graph.stream(None, config, stream_mode="updates"):
-                                pass
-                        st.session_state["report"] = graph.get_state(config).values.get("report")
+                            with tracing_scope(resume_invocation):
+                                for _ in graph.stream(
+                                    None,
+                                    resume_invocation.config,
+                                    stream_mode="updates",
+                                ):
+                                    pass
+                        st.session_state["report"] = graph.get_state(
+                            resume_invocation.config
+                        ).values.get("report")
                         for key in ("pending_graph", "pending_config", "pending_state"):
                             st.session_state.pop(key, None)
                         st.rerun()
@@ -525,6 +564,7 @@ else:
 
     st.markdown("<br>", unsafe_allow_html=True)
     reproducibility = report.get("reproducibility", {})
+    governance = report.get("governance", {})
     methodology_ref = reproducibility.get("methodology_ref")
     methodology_ref_text = (
         ", ".join(str(ref) for ref in methodology_ref)
@@ -545,3 +585,19 @@ else:
         """,
         unsafe_allow_html=True,
     )
+    raw_trace_urls = governance.get("langsmith_trace_urls")
+    trace_urls = raw_trace_urls if isinstance(raw_trace_urls, dict) else {}
+    valid_trace_urls = [
+        (phase, url)
+        for phase, url in trace_urls.items()
+        if isinstance(url, str) and url.startswith("https://")
+    ]
+    if valid_trace_urls:
+        columns = st.columns(len(valid_trace_urls))
+        phase_labels = {"input": "입력·IPS", "analysis": "리스크·Judge"}
+        for column, (phase, url) in zip(columns, valid_trace_urls, strict=True):
+            column.link_button(f"LangSmith {phase_labels.get(phase, phase)} trace", url)
+    else:
+        trace_url = governance.get("langsmith_trace_url")
+        if isinstance(trace_url, str) and trace_url.startswith("https://"):
+            st.link_button("LangSmith trace 열기", trace_url)

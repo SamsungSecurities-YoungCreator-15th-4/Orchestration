@@ -21,6 +21,8 @@ import json
 import logging
 import re
 
+from app.llm.audit import with_llm_audit
+from app.observability.langsmith import annotate_current_run
 from app.rag.citations import Citation, verify_citations
 from app.state import RiskState
 
@@ -224,6 +226,41 @@ def _llm_text(response) -> str:
     return content if isinstance(content, str) else str(content)
 
 
+def _result_with_audit(
+    *,
+    run_config: dict,
+    explanations: list[dict],
+    citations: list[dict],
+    revision: int,
+    prompts: dict[str, str],
+    llm=None,
+    responses: list[object] | None = None,
+) -> dict:
+    audited_config = with_llm_audit(
+        run_config,
+        component="rag_cite",
+        attempt=revision + 1,
+        prompts=prompts,
+        llm=llm,
+        responses=responses or [],
+    )
+    latest = audited_config["audit"]["llm"]["rag_cite"]["latest"]
+    annotate_current_run(
+        metadata={
+            "rag_attempt": revision + 1,
+            "rag_prompt_hash": latest["prompt_hash"]["aggregate_sha256"],
+            "rag_verified_citations": len(citations),
+            "model_version": latest["model_version"],
+        },
+        tags=[f"rag-attempt:{revision + 1}"],
+    )
+    return {
+        "run_config": audited_config,
+        "explanations": explanations,
+        "citations": citations,
+    }
+
+
 # ---------------------------------------------------------------------------
 # 노드 본체
 # ---------------------------------------------------------------------------
@@ -238,6 +275,8 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
     as_of_date = data_period.get("end") or run_config.get("as_of_date")
 
     explanations = _build_explanations(metrics, revision, judge_feedback, as_of_date)
+    prompts: dict[str, str] = {}
+    responses: list[object] = []
 
     # --- 1) retriever 준비 (미주입 시 지연 구성; 실패하면 폴백) ---
     if retriever is None:
@@ -247,7 +286,13 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
             retriever = build_retriever()
         except Exception as e:  # 인덱스 없음 / Azure 환경변수 없음 등
             log.warning("RAG 검색 불가 — 폴백(빈 인용): %s", e)
-            return {"explanations": explanations, "citations": []}
+            return _result_with_audit(
+                run_config=run_config,
+                explanations=explanations,
+                citations=[],
+                revision=revision,
+                prompts=prompts,
+            )
 
     # --- 2) LLM 준비 ---
     if llm is None:
@@ -257,7 +302,13 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
             llm = get_llm(temperature=0.0)
         except Exception as e:
             log.warning("LLM 구성 불가 — 폴백(빈 인용): %s", e)
-            return {"explanations": explanations, "citations": []}
+            return _result_with_audit(
+                run_config=run_config,
+                explanations=explanations,
+                citations=[],
+                revision=revision,
+                prompts=prompts,
+            )
 
     # --- 3) topic별 검색 → 후보 생성 → 해당 검색 근거 안에서 검증 ---
     from app.rag.retriever import retrieve_chunks
@@ -276,9 +327,11 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
             continue
 
         try:
-            raw = _llm_text(
-                llm.invoke(_build_prompt(topic, explanation, metrics, chunks, judge_feedback))
-            )
+            prompt = _build_prompt(topic, explanation, metrics, chunks, judge_feedback)
+            prompts[topic] = prompt
+            response = llm.invoke(prompt)
+            responses.append(response)
+            raw = _llm_text(response)
         except Exception as e:
             log.warning("topic=%s LLM 호출 실패 — 해당 topic 건너뜀: %s", topic, e)
             continue
@@ -322,7 +375,12 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
             seen.add(key)
             unique_verified.append(citation)
 
-    return {
-        "explanations": explanations,
-        "citations": [citation.to_dict() for citation in unique_verified],
-    }
+    return _result_with_audit(
+        run_config=run_config,
+        explanations=explanations,
+        citations=[citation.to_dict() for citation in unique_verified],
+        revision=revision,
+        prompts=prompts,
+        llm=llm,
+        responses=responses,
+    )

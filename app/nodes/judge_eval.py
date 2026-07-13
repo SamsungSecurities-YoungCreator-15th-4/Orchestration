@@ -11,13 +11,47 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 from app.judge.rubric import AXIS_NAMES, evaluate_rubric
+from app.llm.audit import with_llm_audit
+from app.observability.langsmith import annotate_current_run
 from app.state import RiskState
 
 FORCE_FAIL_ENV = "RISK_FORCE_JUDGE_FAIL"
 MAX_JUDGE_RETRIES = 2
 MANUAL_REVIEW_WARNING = "검증 미통과 — 수동검토 필요"
+
+
+class _AuditedLLM:
+    """주입된 LangChain 모델을 그대로 호출하며 실제 프롬프트만 기록한다."""
+
+    def __init__(self, llm):
+        self.llm = llm
+        self.prompts: list[object] = []
+        self.responses: list[object] = []
+
+    def invoke(self, prompt, *args, **kwargs):
+        self.prompts.append(prompt)
+        response = self.llm.invoke(prompt, *args, **kwargs)
+        self.responses.append(response)
+        return response
+
+    def __getattr__(self, name):
+        return getattr(self.llm, name)
+
+
+def _named_prompts(prompts: list[object]) -> dict[str, str]:
+    """Judge prompt 본문의 판정 축을 감사 레코드 이름으로 사용한다."""
+    named: dict[str, str] = {}
+    for index, prompt in enumerate(prompts, 1):
+        prompt_str = str(prompt)
+        match = re.search(r"판정 축:\s*([^\n]+)", prompt_str)
+        name = match.group(1).strip() if match else f"prompt_{index}"
+        if name in named:
+            name = f"{name}_{index}"
+        named[name] = prompt_str
+    return named
 
 
 def _safe_int_env(name: str, default: int = 0) -> int:
@@ -201,9 +235,10 @@ def judge_eval(state: RiskState, *, llm=None) -> dict:
     if not isinstance(force_fail_n, int) or isinstance(force_fail_n, bool):
         force_fail_n = _safe_int_env(FORCE_FAIL_ENV)
     judge_llm = llm if llm is not None else _get_default_llm()
+    audited_llm = _AuditedLLM(judge_llm) if judge_llm is not None else None
 
     preflight_checks = _build_checks(state)
-    rubric_checks, rubric, rubric_manual_flags = _rubric_checks(state, judge_llm)
+    rubric_checks, rubric, rubric_manual_flags = _rubric_checks(state, audited_llm)
     checks = preflight_checks + rubric_checks
     score = _score(checks)
     failures = _failure_items(checks)
@@ -232,7 +267,35 @@ def judge_eval(state: RiskState, *, llm=None) -> dict:
     )
     feedback = "" if passed else _feedback(retries, failures)
 
+    prompt_map = _named_prompts(audited_llm.prompts if audited_llm else [])
+    audited_config = with_llm_audit(
+        state.get("run_config") or {},
+        component="judge_eval",
+        attempt=retries,
+        prompts=prompt_map,
+        llm=judge_llm,
+        responses=audited_llm.responses if audited_llm else [],
+    )
+    failed_axes = [item["axis"] for item in failures]
+    latest = audited_config["audit"]["llm"]["judge_eval"]["latest"]
+    annotate_current_run(
+        metadata={
+            "trace_id": state.get("trace_id"),
+            "failed_axes": failed_axes,
+            "judge_feedback": feedback,
+            "judge_retries": retries,
+            "judge_prompt_hash": latest["prompt_hash"]["aggregate_sha256"],
+            "model_version": latest["model_version"],
+        },
+        tags=[
+            f"judge-attempt:{retries}",
+            "judge:passed" if passed else "judge:failed",
+            *(f"failed-axis:{axis}" for axis in failed_axes),
+        ],
+    )
+
     return {
+        "run_config": audited_config,
         "judge_retries": retries,
         "judge": {
             "passed": passed,

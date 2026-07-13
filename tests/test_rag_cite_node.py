@@ -41,6 +41,9 @@ class _FakeRetriever:
 class _FakeLLM:
     """실제 인용 1개 + 환각 인용 1개를 후보로 내놓는 fake."""
 
+    model_name = "gpt-4o-test"
+    deployment_name = "test-deployment"
+
     def invoke(self, prompt: str):
         return json.dumps(
             [
@@ -91,6 +94,14 @@ def test_only_verified_citations_recorded():
     disclaimer = next(e for e in out["explanations"] if e["topic"] == "기준일 및 유의사항")
     assert "2026-07-03" in disclaimer["text"]
     assert "보장하지 않습니다" in disclaimer["text"]
+    rag_audit = out["run_config"]["audit"]["llm"]["rag_cite"]["latest"]
+    assert rag_audit["prompt_hash"]["aggregate_sha256"]
+    assert set(rag_audit["prompt_hash"]["items"]) == {
+        "VaR 해석",
+        "스트레스 시나리오",
+        "기준일 및 유의사항",
+    }
+    assert rag_audit["model_version"]["deployment"] == "test-deployment"
 
 
 def test_rag_explanations_pass_judge_e2e_with_fake_llms():
