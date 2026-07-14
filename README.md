@@ -1,5 +1,5 @@
 # Orchestration
-재현가능·설명가능 리스크 리포트 엔진 (LangGraph 스켈레톤)
+재현가능·설명가능 리스크 리포트 엔진
 
 ## 문제 정의
 
@@ -17,12 +17,39 @@
 핵심 설계 원칙은 **통제가 필요한 곳(분기·승인·루프)엔 LangGraph를, 재현이 필요한
 곳(수치 계산)엔 결정론 엔진을** 분리 배치하는 것이다.
 
+## 실행 흐름
+
+`load_inputs → extract_ips → conflict_check → approval_gate(HITL) → var_engine →`
+`rag_cite → judge_eval → assemble_report`
+
+- `var_engine`은 Historical VaR·CVaR, 신뢰구간과 3개 스트레스 시나리오를 계산한다.
+- `rag_cite`는 로컬 Chroma에서 topic별 근거를 검색하고 원문 부분문자열만 인용한다.
+- `judge_eval`은 6축 루브릭으로 설명·인용을 검사하며 최대 2회 시도 후 수동검토로 전환한다.
+- LangSmith는 APAC 프로젝트에서 HITL 전후 trace와 감사정보를 기록한다. 기본 설정은
+  입력·출력을 숨겨 상담정보를 외부 trace에 남기지 않는다.
+
 ## 실행법
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python scripts/run_graph.py --auto-approve
+python scripts/run_graph.py --auto-approve --offline
 pytest
+```
+
+로컬 `.env`와 시장데이터 캐시·Chroma가 준비된 실제 실행:
+
+```bash
+python -m app.rag.ingest
+python scripts/smoke_rag.py
+python scripts/run_graph.py --auto-approve
+streamlit run ui/app.py
+```
+
+통합·배포 전에는 API 키 값을 출력하지 않는 사전점검을 실행한다.
+
+```bash
+python scripts/preflight_release.py
+python scripts/preflight_release.py --real  # 실제 Azure E2E 포함
 ```
 
 gpt-4o IPS 추출의 20개 회귀 사례 정확도와 동일 입력 반복 일치율은 Azure 키가 있는
@@ -36,6 +63,20 @@ IPS 충돌·예외 승인 기준은 [`docs/ips_conflict_policy.md`](docs/ips_con
 공식 근거, 내부 임계값, `draft → reviewed → locked` 계약과 함께 기록한다.
 20사례×3회 실제 평가 결과는
 [`docs/ips_extraction_evaluation.md`](docs/ips_extraction_evaluation.md)에 기록한다.
+
+Judge 평가셋은 결정론 15건과 Azure LLM 5건을 분리한다.
+
+```bash
+pytest tests/test_judge_eval_evalset.py
+RUN_AZURE_JUDGE_EVALSET=1 pytest tests/test_judge_eval_evalset.py
+```
+
+## 로컬 자산과 비밀정보
+
+- `.env`에는 Azure OpenAI와 LangSmith 키를 두되 git에 커밋하지 않는다.
+- 코퍼스 PDF 21건과 `data/chroma/`, 실데이터 parquet는 로컬 전용이다.
+- 추적 가능한 문서 목록은 [`corpus/manifest.md`](corpus/manifest.md)에 유지한다.
+- 제출·시연에서는 `config/config.yaml`의 `strict_citation_gate`를 `true`로 전환한다.
 
 ## 브랜치 규칙
 - `main` ← `develop` ← `feature/*`
