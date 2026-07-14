@@ -30,6 +30,7 @@ from app.state import RiskState
 log = logging.getLogger(__name__)
 
 MAX_CANDIDATES = 8  # LLM 인용 후보 상한 (프롬프트 지시용)
+MAX_EVIDENCE_QUOTE_CHARS = 220  # UI 한 행에서 읽을 수 있는 근거 문장 상한
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。])\s+")
 _SENTENCE_END_RE = re.compile(r"[.!?。][\"'”’)]*$")
 _UNREADABLE_HANGUL_RUN_RE = re.compile(r"[가-힣]{16,}")
@@ -164,7 +165,10 @@ def _evidence_rows(chunks: list[dict]) -> list[dict]:
             sentences = sentences[:-1]
 
         readable_sentences = [
-            quote for quote in sentences if not _UNREADABLE_HANGUL_RUN_RE.search(quote)
+            quote
+            for quote in sentences
+            if len(quote) <= MAX_EVIDENCE_QUOTE_CHARS
+            and not _UNREADABLE_HANGUL_RUN_RE.search(quote)
         ]
         for sentence_no, quote in enumerate(readable_sentences, 1):
             rows.append(

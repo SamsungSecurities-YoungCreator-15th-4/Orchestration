@@ -267,6 +267,26 @@ def test_evidence_rows_skip_unreadable_unspaced_pdf_sentence():
     ]
 
 
+def test_evidence_rows_skip_table_like_oversized_sentence():
+    oversized = "항목 의미 " + "신뢰구간 계산 규약 " * 30 + "."
+    chunks = [
+        {
+            "chunk_id": "methodology.pdf::0002",
+            "source": "methodology.pdf",
+            "text": oversized + "\n짧고 완전한 근거 문장입니다.",
+        }
+    ]
+
+    assert _evidence_rows(chunks) == [
+        {
+            "evidence_id": "methodology.pdf::0002#S001",
+            "quote": "짧고 완전한 근거 문장입니다.",
+            "chunk_id": "methodology.pdf::0002",
+            "source": "methodology.pdf",
+        }
+    ]
+
+
 class _BrokenRetriever:
     """검색 중 네트워크류 예외를 던지는 fake."""
 
