@@ -24,11 +24,16 @@ import re
 from app.llm.audit import with_llm_audit
 from app.observability.langsmith import annotate_current_run
 from app.rag.citations import Citation, verify_citations
+from app.rag.ingest import CHUNK_SIZE
 from app.state import RiskState
 
 log = logging.getLogger(__name__)
 
 MAX_CANDIDATES = 8  # LLM 인용 후보 상한 (프롬프트 지시용)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。])\s+")
+_SENTENCE_END_RE = re.compile(r"[.!?。][\"'”’)]*$")
+_UNREADABLE_HANGUL_RUN_RE = re.compile(r"[가-힣]{16,}")
+_SECTION_HEADING_LINE_RE = re.compile(r"^\d+(?:\.\d+)*\.\s+[^.!?。]{1,80}$")
 
 
 # ---------------------------------------------------------------------------
@@ -64,8 +69,8 @@ def _build_query(topic: str, metrics: dict) -> str:
 
     if topic == "기준일 및 유의사항":
         return (
-            "리스크 방법론 기준일 과거 데이터 추정치 한계 / "
-            "투자 권유 아님 원금 수익 보장 아님 실제 결과 차이"
+            "VaR CVaR 방법론 표기 규약 신뢰수준 보유기간 기준일 / "
+            "과거 데이터 통계적 추정치 실제 결과 차이 과도한 정밀 확률 표현"
         )
 
     return f"리스크 방법론 근거 재검증 / {topic}"
@@ -115,7 +120,13 @@ def _build_explanations(
 
 
 def _evidence_rows(chunks: list[dict]) -> list[dict]:
-    """유효한 chunk 원문 줄만 evidence_id와 함께 결정론적으로 펼친다."""
+    """PDF 줄바꿈을 합친 문장 단위 근거를 결정론적으로 만든다.
+
+    고정 길이 청크의 시작·끝은 문장 중간일 수 있다. 첫 청크가 아닌 경우의
+    선행 조각과 가득 찬 청크의 후행 조각은 제외해 UI에 불완전한 인용문이
+    노출되는 것을 막는다. 공백만 정규화하므로 최종 substring 검증 규약은
+    그대로 유지된다.
+    """
     rows: list[dict] = []
     for chunk in chunks:
         if not isinstance(chunk, dict):
@@ -128,13 +139,37 @@ def _evidence_rows(chunks: list[dict]) -> list[dict]:
             continue
         source = chunk.get("source")
         source = source if isinstance(source, str) else ""
-        for line_no, line in enumerate(text.splitlines(), 1):
-            quote = line.strip()
-            if not quote:
-                continue
+        content_lines = [
+            line.strip()
+            for line in text.splitlines()
+            if line.strip() and not _SECTION_HEADING_LINE_RE.fullmatch(line.strip())
+        ]
+        normalized = " ".join(content_lines)
+        if not normalized:
+            continue
+
+        sentences = [part.strip() for part in _SENTENCE_SPLIT_RE.split(normalized) if part.strip()]
+        char_start = chunk.get("char_start")
+        char_end = chunk.get("char_end")
+        starts_mid_document = isinstance(char_start, int) and char_start > 0
+        full_sized_chunk = (
+            isinstance(char_start, int)
+            and isinstance(char_end, int)
+            and char_end - char_start >= CHUNK_SIZE
+        )
+
+        if starts_mid_document and len(sentences) > 1:
+            sentences = sentences[1:]
+        if full_sized_chunk and len(sentences) > 1 and not _SENTENCE_END_RE.search(sentences[-1]):
+            sentences = sentences[:-1]
+
+        readable_sentences = [
+            quote for quote in sentences if not _UNREADABLE_HANGUL_RUN_RE.search(quote)
+        ]
+        for sentence_no, quote in enumerate(readable_sentences, 1):
             rows.append(
                 {
-                    "evidence_id": f"{chunk_id}#L{line_no:03d}",
+                    "evidence_id": f"{chunk_id}#S{sentence_no:03d}",
                     "quote": quote,
                     "chunk_id": chunk_id,
                     "source": source,
@@ -206,8 +241,8 @@ def _build_prompt(
     return (
         "너는 리스크 리포트의 인용 담당자다. 아래 단일 topic 설명의 수치·주장을 "
         "뒷받침하는 인용을 이 topic 전용 근거 청크에서만 고른다.\n"
-        "규칙: 설명문의 각 실질적 주장을 뒷받침하는 evidence_id를 아래 근거 줄에서 "
-        "고른다. evidence_id를 만들거나 서로 다른 줄을 합치지 않는다.\n"
+        "규칙: 설명문의 각 실질적 주장을 뒷받침하는 evidence_id를 아래 근거 문장에서 "
+        "고른다. evidence_id를 만들거나 여러 근거 문장을 합치지 않는다.\n"
         f"모든 claim은 정확히 {json.dumps(topic, ensure_ascii=False)}로 출력하라. "
         "근거가 없으면 무관한 인용을 만들지 말고 빈 배열 []을 출력하라.\n"
         f"최대 {MAX_CANDIDATES}개. 다음 JSON 배열만 출력하라: "
@@ -216,7 +251,7 @@ def _build_prompt(
         f"## 설명 topic\n{topic}\n\n"
         f"## 설명문\n{explanation.get('text', '')}\n\n"
         f"## 리스크 지표\n{json.dumps(metrics, ensure_ascii=False, default=str)}\n\n"
-        "## 근거 줄\n" + "\n\n".join(evidence_lines)
+        "## 근거 문장\n" + "\n\n".join(evidence_lines)
     )
 
 

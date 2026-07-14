@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.nodes.judge_eval import judge_eval
 from app.nodes.rag_cite import _build_query, _evidence_rows, parse_candidates, rag_cite
+from app.rag.citations import verify_citations
 
 REAL_SENTENCE = "스트레스 테스트는 역사적 VaR가 포착하지 못하는 꼬리 위험을 보완한다."
 
@@ -163,23 +164,25 @@ def test_parse_candidates_bracket_prefix_safe():
     assert got[0].quote == "본문"
 
 
-def test_parse_candidates_resolves_evidence_id_to_exact_pdf_line():
+def test_parse_candidates_resolves_evidence_id_to_complete_pdf_sentence():
     chunks = [
         {
             "chunk_id": "methodology.pdf::0001",
             "source": "methodology.pdf",
-            "text": "현\n재 포트폴리오에 독립 적용한다.",
+            "text": "앞 문장의 나머지다.\n현재 포트폴리오에 독립 적용한다.\n다음 문장 일부",
+            "char_start": 800,
+            "char_end": 1800,
         }
     ]
     raw = json.dumps(
         [
             {
                 "claim": "근거 선택",
-                "evidence_id": "methodology.pdf::0001#L002",
+                "evidence_id": "methodology.pdf::0001#S001",
             },
             {
                 "claim": "조작된 근거",
-                "evidence_id": "methodology.pdf::0001#L999",
+                "evidence_id": "methodology.pdf::0001#S999",
             },
         ],
         ensure_ascii=False,
@@ -188,8 +191,11 @@ def test_parse_candidates_resolves_evidence_id_to_exact_pdf_line():
     got = parse_candidates(raw, chunks)
 
     assert len(got) == 1
-    assert got[0].quote == "재 포트폴리오에 독립 적용한다."
+    assert got[0].quote == "현재 포트폴리오에 독립 적용한다."
     assert got[0].chunk_id == "methodology.pdf::0001"
+    verified, rejected = verify_citations(got, chunks)
+    assert verified == got
+    assert rejected == []
 
 
 def test_evidence_rows_ignore_malformed_chunks():
@@ -197,22 +203,67 @@ def test_evidence_rows_ignore_malformed_chunks():
         {},
         {"chunk_id": "none-text.pdf::0001", "text": None},
         {"chunk_id": "", "text": "빈 ID"},
-        {"chunk_id": "valid.pdf::0001", "source": None, "text": "첫 줄\n\n둘째 줄"},
+        {"chunk_id": "valid.pdf::0001", "source": None, "text": "첫 줄입니다.\n\n둘째 줄입니다."},
     ]
 
     assert _evidence_rows(chunks) == [
         {
-            "evidence_id": "valid.pdf::0001#L001",
-            "quote": "첫 줄",
+            "evidence_id": "valid.pdf::0001#S001",
+            "quote": "첫 줄입니다.",
             "chunk_id": "valid.pdf::0001",
             "source": "",
         },
         {
-            "evidence_id": "valid.pdf::0001#L003",
-            "quote": "둘째 줄",
+            "evidence_id": "valid.pdf::0001#S002",
+            "quote": "둘째 줄입니다.",
             "chunk_id": "valid.pdf::0001",
             "source": "",
         },
+    ]
+
+
+def test_evidence_rows_remove_fixed_chunk_boundary_fragments():
+    chunks = [
+        {
+            "chunk_id": "methodology.pdf::0002",
+            "source": "methodology.pdf",
+            "text": "앞 문장에서 잘린 조각이다.\n완전한 근거 문장입니다.\n뒤 문장에서 잘린 조각",
+            "char_start": 800,
+            "char_end": 1800,
+        }
+    ]
+
+    assert _evidence_rows(chunks) == [
+        {
+            "evidence_id": "methodology.pdf::0002#S001",
+            "quote": "완전한 근거 문장입니다.",
+            "chunk_id": "methodology.pdf::0002",
+            "source": "methodology.pdf",
+        }
+    ]
+
+
+def test_evidence_rows_skip_unreadable_unspaced_pdf_sentence():
+    chunks = [
+        {
+            "chunk_id": "house-view.pdf::0001",
+            "source": "house-view.pdf",
+            "text": "본조사분석자료에수록된내용은당사리서치센터가작성했습니다.",
+        },
+        {
+            "chunk_id": "methodology.pdf::0001",
+            "source": "methodology.pdf",
+            "text": "7. 표기 규약\n과거 데이터 기반 추정치는 실제 결과와 다를 수 있습니다.",
+        },
+    ]
+
+    assert _evidence_rows(chunks) == [
+        {
+            "evidence_id": "methodology.pdf::0001#S001",
+            "quote": "과거 데이터 기반 추정치는 실제 결과와 다를 수 있습니다.",
+            "chunk_id": "methodology.pdf::0001",
+            "source": "methodology.pdf",
+        }
     ]
 
 
