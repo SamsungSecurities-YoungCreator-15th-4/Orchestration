@@ -510,8 +510,26 @@ else:
         e1, e2 = st.columns(2)
         e1.metric("검증 통과 인용", f"{evidence.get('verified_citation_count', 0)}건")
         e2.metric("전체 인용", f"{evidence.get('citation_count', 0)}건")
-        if evidence.get("sources"):
-            st.caption("출처: " + ", ".join(evidence["sources"]))
+
+        verified_citations = [
+            c for c in (report.get("citations") or [])
+            if isinstance(c, dict) and c.get("verified") is True
+        ]
+        if verified_citations:
+            st.table(
+                [
+                    {
+                        "주장": c.get("claim") or "-",
+                        "근거 문장": c.get("quote") or "-",
+                        "출처": (
+                            c.get("source").strip().rsplit("/", 1)[-1]
+                            if c.get("source")
+                            else "-"
+                        ),
+                    }
+                    for c in verified_citations
+                ]
+            )
 
     with st.container(border=True):
         section_title("품질 검증")
