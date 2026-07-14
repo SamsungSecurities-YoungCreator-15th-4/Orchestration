@@ -521,7 +521,11 @@ else:
                     {
                         "주장": c.get("claim") or "-",
                         "근거 문장": c.get("quote") or "-",
-                        "출처": c.get("source") or "-",
+                        "출처": (
+                            c.get("source").strip().rsplit("/", 1)[-1]
+                            if c.get("source")
+                            else "-"
+                        ),
                     }
                     for c in verified_citations
                 ]
