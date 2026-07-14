@@ -28,6 +28,13 @@ _NUMBER_RE = re.compile(
     r"(?<![\w.])(?P<number>[+-]?\d[\d,]*(?:\.\d+)?)\s*"
     r"(?P<unit>%|bp|억원|억|만원|원|거래일|일)"
 )
+_ENGINE_METRIC_CONTEXT_RE = re.compile(
+    r"(?<![A-Za-z])(?:CVaR|VaR|ES)(?![A-Za-z])|Expected\s+Shortfall|"
+    r"손실액|손실률|신뢰수준|보유기간|관측기간|관측치|포트폴리오\s*총액",
+    flags=re.IGNORECASE,
+)
+_ENGINE_DATE_CONTEXT_RE = re.compile(r"기준일|산출일|데이터.{0,8}종료|관측.{0,8}종료")
+_ENGINE_METRIC_TOPICS = {"VaR 해석", "스트레스 시나리오", "기준일 및 유의사항"}
 _CLAUSE_BOUNDARY_RE = re.compile(r"[,.!?;\n]")
 _SENTENCE_BOUNDARY_RE = re.compile(r"[.!?;\n]")
 _SPACED_AN_NEGATION_RE = re.compile(r"(?:^|\s)안(?:\s|되|돼|됨|함|하)")
@@ -112,35 +119,105 @@ def _normalized_mention(number: float, unit: str) -> float:
     return number
 
 
+def _mention_context(text: str, start: int, end: int) -> str:
+    """숫자 주변의 짧은 구간을 반환해 엔진 수치 문맥인지 판별한다."""
+    return text[max(0, start - 24):min(len(text), end + 16)]
+
+
+def _verified_quotes_by_topic(citations: list | None) -> dict[str, list[str]]:
+    """검증된 인용문을 claim(topic)별로 공백 정규화해 묶는다."""
+    by_topic: dict[str, list[str]] = {}
+    for citation in citations or []:
+        if not isinstance(citation, dict) or citation.get("verified") is not True:
+            continue
+        quote = citation.get("quote")
+        if not isinstance(quote, str) or not quote.strip():
+            continue
+        topic = str(citation.get("claim") or "").strip()
+        by_topic.setdefault(topic, []).append(" ".join(quote.split()))
+    return by_topic
+
+
+def _is_cited_fact(mention: str, topic: str, quotes_by_topic: dict[str, list[str]]) -> bool:
+    """같은 topic 인용 quote에 숫자·날짜가 실제로 존재하는지 확인한다."""
+    normalized = " ".join(mention.split())
+    quotes = quotes_by_topic.get(topic, [])
+    return bool(normalized) and any(normalized in quote for quote in quotes)
+
+
 def numeric_consistency(
     explanations: list,
     metrics: dict,
     expected_dates: set[str] | None = None,
+    citations: list | None = None,
 ) -> tuple[bool, str]:
-    text = _explanation_text(explanations)
     candidates = _metric_numbers(metrics)
     dates = _metric_dates(metrics) | (expected_dates or set())
+    quotes_by_topic = _verified_quotes_by_topic(citations)
     mismatches: list[str] = []
+    engine_metric_count = 0
+    evidence_fact_count = 0
 
-    mentioned_dates = set(_DATE_RE.findall(text))
-    for date in sorted(mentioned_dates - dates):
-        mismatches.append(f"기준 데이터에 없는 날짜 {date}")
+    for explanation in explanations:
+        if not isinstance(explanation, dict) or explanation.get("topic") == "재작성 반영":
+            continue
+        topic = str(explanation.get("topic") or "").strip()
+        text = str(explanation.get("text") or "").strip()
+        if not text:
+            continue
 
-    text_without_dates = _DATE_RE.sub("", text)
-    for match in _NUMBER_RE.finditer(text_without_dates):
-        raw = match.group("number")
-        unit = match.group("unit") or ""
-        number = float(raw.replace(",", ""))
-        normalized = _normalized_mention(number, unit)
-        if not any(
-            math.isclose(normalized, candidate, rel_tol=1e-6, abs_tol=1e-6)
-            for candidate in candidates
-        ):
-            mismatches.append(f"설명 수치 {raw}{unit}가 metrics에 없음")
+        for match in _DATE_RE.finditer(text):
+            date = match.group(0)
+            context = _mention_context(text, match.start(), match.end())
+            if date in dates:
+                engine_metric_count += 1
+            elif (
+                topic == "기준일 및 유의사항"
+                or _ENGINE_DATE_CONTEXT_RE.search(context)
+            ):
+                mismatches.append(f"기준 데이터에 없는 날짜 {date}")
+            elif _is_cited_fact(date, topic, quotes_by_topic):
+                evidence_fact_count += 1
+            else:
+                mismatches.append(f"날짜 {date}가 metrics 또는 같은 topic의 검증 인용에 없음")
+
+        text_without_dates = _DATE_RE.sub("", text)
+        for match in _NUMBER_RE.finditer(text_without_dates):
+            raw = match.group("number")
+            unit = match.group("unit") or ""
+            mention = match.group(0).strip()
+            number = float(raw.replace(",", ""))
+            normalized = _normalized_mention(number, unit)
+            context = _mention_context(
+                text_without_dates,
+                match.start(),
+                match.end(),
+            )
+            metric_match = any(
+                math.isclose(normalized, candidate, rel_tol=1e-6, abs_tol=1e-6)
+                for candidate in candidates
+            )
+            if metric_match:
+                engine_metric_count += 1
+            elif (
+                topic in _ENGINE_METRIC_TOPICS
+                or _ENGINE_METRIC_CONTEXT_RE.search(context)
+            ):
+                mismatches.append(f"설명 수치 {raw}{unit}가 metrics에 없음")
+            elif _is_cited_fact(mention, topic, quotes_by_topic):
+                evidence_fact_count += 1
+            else:
+                mismatches.append(
+                    f"설명 수치 {raw}{unit}가 metrics 또는 같은 topic의 검증 인용에 없음"
+                )
 
     if mismatches:
         return False, "; ".join(mismatches)
-    return True, "설명문의 수치와 기준일이 metrics와 일치합니다."
+    return (
+        True,
+        "설명문의 엔진 수치·기준일은 metrics와 일치하고 인용 사실은 검증 인용과 "
+        f"일치합니다. (engine_metric={engine_metric_count}, evidence_fact={evidence_fact_count})",
+    )
 
 
 def _response_text(response) -> str:
@@ -302,7 +379,12 @@ def evaluate_rubric(
 ) -> tuple[dict[str, tuple[bool, str]], list[str]]:
     results = {
         "source_validity": source_validity(citations, strict_citation_gate),
-        "numeric_consistency": numeric_consistency(explanations, metrics, expected_dates),
+        "numeric_consistency": numeric_consistency(
+            explanations,
+            metrics,
+            expected_dates,
+            citations,
+        ),
         "hallucination": hallucination(
             explanations,
             citations,

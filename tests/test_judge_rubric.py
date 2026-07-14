@@ -111,6 +111,105 @@ def test_numeric_consistency_ignores_unitless_ordinals_and_counts():
     assert numeric_consistency(explanations, {})[0] is True
 
 
+def test_numeric_consistency_accepts_cited_evidence_fact_outside_metrics():
+    topic = "거시환경·스트레스 개연성"
+    text = "한국은행은 2026-05-29 기준금리를 2.50%로 유지했습니다."
+    explanations = [{"topic": topic, "text": text, "revision": 0}]
+    citations = [
+        {
+            "claim": topic,
+            "quote": text,
+            "source": "bok_mpd_202605.pdf",
+            "chunk_id": "bok_mpd_202605.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(
+        explanations,
+        METRICS,
+        {AS_OF_DATE},
+        citations,
+    )
+
+    assert passed is True
+    assert "evidence_fact=2" in reason
+
+
+def test_numeric_consistency_rejects_uncited_or_cross_topic_evidence_fact():
+    topic = "거시환경·스트레스 개연성"
+    text = "한국은행은 기준금리를 2.50%로 유지했습니다."
+    explanations = [{"topic": topic, "text": text, "revision": 0}]
+    citations = [
+        {
+            "claim": "세무 참고",
+            "quote": text,
+            "source": "bok_mpd_202605.pdf",
+            "chunk_id": "bok_mpd_202605.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(
+        explanations,
+        METRICS,
+        {AS_OF_DATE},
+        citations,
+    )
+
+    assert passed is False
+    assert "같은 topic의 검증 인용에 없음" in reason
+
+
+def test_numeric_consistency_does_not_reclassify_wrong_var_as_evidence_fact():
+    text = f"기준일 {AS_OF_DATE}, 99% 신뢰수준에서 1일 VaR은 4,000만원입니다."
+    explanations = [{"topic": "VaR 해석", "text": text, "revision": 0}]
+    citations = [
+        {
+            "claim": "VaR 해석",
+            "quote": text,
+            "source": "methodology_var_cvar_2026.pdf",
+            "chunk_id": "methodology_var_cvar_2026.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(
+        explanations,
+        METRICS,
+        {AS_OF_DATE},
+        citations,
+    )
+
+    assert passed is False
+    assert "4,000만원가 metrics에 없음" in reason
+
+
+def test_numeric_consistency_does_not_reclassify_wrong_as_of_date_as_evidence_fact():
+    wrong_date = "2026-05-29"
+    text = f"리포트 기준일은 {wrong_date}입니다."
+    explanations = [{"topic": "기준일 및 유의사항", "text": text, "revision": 0}]
+    citations = [
+        {
+            "claim": "기준일 및 유의사항",
+            "quote": text,
+            "source": "methodology_var_cvar_2026.pdf",
+            "chunk_id": "methodology_var_cvar_2026.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(
+        explanations,
+        METRICS,
+        {AS_OF_DATE},
+        citations,
+    )
+
+    assert passed is False
+    assert f"기준 데이터에 없는 날짜 {wrong_date}" in reason
+
+
 def test_hallucination_pass_and_fail_with_chunk_text():
     passing_llm = _AxisLLM(hallucination_passed=True)
     assert hallucination(

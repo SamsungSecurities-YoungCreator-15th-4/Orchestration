@@ -1,4 +1,4 @@
-"""합의된 Judge 평가셋 20건: 결정론 15건 + Azure LLM 5건."""
+"""합의된 Judge 평가셋 20건과 RAG 근거 수치 확장 평가셋."""
 from __future__ import annotations
 
 import json
@@ -67,6 +67,7 @@ DETERMINISTIC_CASE_IDS = (
 )
 LLM_CASE_IDS = ("EC-06", "EC-07", "EC-08", "EC-09", "EC-16")
 ALL_CASE_IDS = DETERMINISTIC_CASE_IDS + LLM_CASE_IDS
+RAG_EVIDENCE_CASE_IDS = ("EC-RAG-01", "EC-RAG-02", "EC-RAG-03")
 
 
 class _PassingLLM:
@@ -204,6 +205,34 @@ def _case(case_id: str) -> dict:
         expected_passed = False
         expected_axes.add("source_validity")
         expected_flags.add(MANUAL_REVIEW_WARNING)
+    elif case_id in {"EC-RAG-01", "EC-RAG-02"}:
+        topic = "거시환경·스트레스 개연성"
+        fact = "한국은행은 2026-05-29 기준금리를 2.50%로 유지했습니다."
+        text = (
+            f"기준일 {AS_OF_DATE} 기준 시장 참고자료입니다. {fact} "
+            "투자 권유가 아니고 원금 또는 수익을 보장하지 않습니다. "
+            "실제 결과와 다를 수 있습니다."
+        )
+        state["explanations"] = [{"topic": topic, "text": text, "revision": 0}]
+        state["citations"] = [
+            {
+                "claim": topic if case_id == "EC-RAG-01" else "세무 참고",
+                "quote": fact,
+                "source": "bok_mpd_202605.pdf",
+                "chunk_id": "bok_mpd_202605.pdf::0001",
+                "verified": True,
+                "extra": {"chunk_text": fact, "category": "macro"},
+            }
+        ]
+        if case_id == "EC-RAG-02":
+            expected_passed = False
+            expected_axes.add("numeric_consistency")
+    elif case_id == "EC-RAG-03":
+        wrong_text = BASE_TEXT.replace("79,181,272원", "50,000,000원")
+        _set_text(state, wrong_text, evidence_text=wrong_text)
+        state["citations"][0]["quote"] = wrong_text
+        expected_passed = False
+        expected_axes.add("numeric_consistency")
     elif case_id != "EC-01":
         raise ValueError(f"알 수 없는 평가셋 ID: {case_id}")
 
@@ -271,7 +300,20 @@ def test_llm_judge_evalset(case_id: str, azure_llm):
     _assert_case(spec, result)
 
 
+@pytest.mark.parametrize("case_id", RAG_EVIDENCE_CASE_IDS)
+def test_rag_evidence_numeric_evalset(case_id: str):
+    spec = _case(case_id)
+    result = judge_eval(spec["state"], llm=_PassingLLM())
+
+    _assert_case(spec, result)
+
+
 def test_evalset_has_15_deterministic_and_5_llm_cases():
     assert len(DETERMINISTIC_CASE_IDS) == 15
     assert len(LLM_CASE_IDS) == 5
     assert len(set(ALL_CASE_IDS)) == 20
+
+
+def test_rag_evidence_evalset_has_three_unique_cases():
+    assert len(RAG_EVIDENCE_CASE_IDS) == 3
+    assert not set(RAG_EVIDENCE_CASE_IDS) & set(ALL_CASE_IDS)
