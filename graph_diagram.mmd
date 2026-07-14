@@ -26,6 +26,6 @@ flowchart TD
     approval_gate --> var_engine
     var_engine --> rag_cite
     rag_cite --> judge_eval
-    judge_eval -- "분기③ 불통과 & retries < 2" --> rag_cite
+    judge_eval -- "분기③ 불통과 & judge_retries < 2" --> rag_cite
     judge_eval -- "통과 or 2회 도달<br/>(실패 시 수동검토)" --> assemble_report
     assemble_report --> END([END])
