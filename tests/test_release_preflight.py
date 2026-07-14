@@ -1,15 +1,21 @@
 """release preflight 순수 로직 테스트."""
 import sys
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
+
+import pytest
 
 from scripts.preflight_release import (
     EXPECTED_PDF_COUNTS,
     OFFLINE_ENV_KEYS,
+    REQUIRED_GITIGNORE_PATTERNS,
     _parse_env_template,
     _gitignore_patterns,
     command_check,
     corpus_pdf_counts,
+    local_asset_checks,
     offline_environment,
+    static_checks,
 )
 
 
@@ -64,3 +70,78 @@ def test_command_check_requires_semantic_success_text():
 
     assert result.status == "FAIL"
     assert "필수 출력 없음" in result.detail
+
+
+def test_static_checks_distinguish_git_grep_execution_failure(tmp_path: Path, monkeypatch):
+    (tmp_path / ".env.example").write_text("AZURE_OPENAI_API_KEY=\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text(
+        "\n".join(sorted(REQUIRED_GITIGNORE_PATTERNS)),
+        encoding="utf-8",
+    )
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "config.yaml").write_text(
+        "strict_citation_gate: false\n",
+        encoding="utf-8",
+    )
+    captured: dict = {}
+
+    def fake_run(*args, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(returncode=128)
+
+    monkeypatch.setattr("scripts.preflight_release.subprocess.run", fake_run)
+
+    result = next(
+        item for item in static_checks(tmp_path)
+        if item.name == "tracked secret pattern scan"
+    )
+
+    assert result.status == "FAIL"
+    assert result.detail == "git grep 실행 실패 (exit 128)"
+    assert captured["encoding"] == "utf-8"
+    assert captured["errors"] == "replace"
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected_detail"),
+    [
+        (None, "metadata가 dict가 아님"),
+        ({"category": "unexpected", "source": "doc.pdf"}, "예상하지 못한 category"),
+        ({"category": "macro"}, "source 누락"),
+    ],
+)
+def test_local_asset_checks_fail_on_invalid_chroma_metadata(
+    tmp_path: Path,
+    monkeypatch,
+    metadata,
+    expected_detail: str,
+):
+    persist_dir = tmp_path / "data" / "chroma"
+    persist_dir.mkdir(parents=True)
+    (persist_dir / "chroma.sqlite3").write_bytes(b"index")
+
+    class FakeCollection:
+        def get(self, *, include):
+            assert include == ["metadatas"]
+            return {"metadatas": [metadata]}
+
+    class FakeClient:
+        def __init__(self, *, path: str):
+            assert path == str(persist_dir)
+
+        def get_collection(self, name: str):
+            assert name
+            return FakeCollection()
+
+    chromadb = ModuleType("chromadb")
+    chromadb.PersistentClient = FakeClient
+    monkeypatch.setitem(sys.modules, "chromadb", chromadb)
+
+    result = next(
+        item for item in local_asset_checks(tmp_path)
+        if item.name == "Chroma indexed sources"
+    )
+
+    assert result.status == "FAIL"
+    assert expected_detail in result.detail

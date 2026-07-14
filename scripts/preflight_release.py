@@ -101,14 +101,24 @@ def static_checks(root: Path = ROOT) -> list[CheckResult]:
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
-    results.append(
-        _result(
+    if secret_scan.returncode == 1:
+        secret_result = CheckResult("tracked secret pattern scan", "PASS", "의심 패턴 0건")
+    elif secret_scan.returncode == 0:
+        secret_result = CheckResult(
             "tracked secret pattern scan",
-            secret_scan.returncode == 1,
-            "의심 패턴 0건" if secret_scan.returncode == 1 else "추적 파일에서 의심 패턴 발견",
+            "FAIL",
+            "추적 파일에서 의심 패턴 발견",
         )
-    )
+    else:
+        secret_result = CheckResult(
+            "tracked secret pattern scan",
+            "FAIL",
+            f"git grep 실행 실패 (exit {secret_scan.returncode})",
+        )
+    results.append(secret_result)
     config = yaml.safe_load((root / "config" / "config.yaml").read_text(encoding="utf-8"))
     gate_on = config.get("strict_citation_gate") is True
     results.append(
@@ -142,19 +152,18 @@ def local_asset_checks(root: Path = ROOT) -> list[CheckResult]:
         collection = PersistentClient(path=str(persist_dir)).get_collection(COLLECTION_NAME)
         stored = collection.get(include=["metadatas"])
         metadatas = stored.get("metadatas") or []
-        sources = {
-            metadata.get("source")
-            for metadata in metadatas
-            if isinstance(metadata, dict) and metadata.get("source")
-        }
         by_category: dict[str, set[str]] = {category: set() for category in EXPECTED_PDF_COUNTS}
-        for metadata in metadatas:
+        for index, metadata in enumerate(metadatas):
             if not isinstance(metadata, dict):
-                continue
+                raise ValueError(f"청크 {index} metadata가 dict가 아님")
             category = metadata.get("category")
+            if category not in by_category:
+                raise ValueError(f"청크 {index}의 예상하지 못한 category: {category}")
             source = metadata.get("source")
-            if category in by_category and source:
-                by_category[category].add(source)
+            if not isinstance(source, str) or not source.strip():
+                raise ValueError(f"청크 {index}의 source 누락")
+            by_category[category].add(source)
+        sources = {source for category_sources in by_category.values() for source in category_sources}
         indexed_counts = {key: len(value) for key, value in by_category.items()}
         valid = indexed_counts == EXPECTED_PDF_COUNTS
         results.append(
@@ -165,7 +174,13 @@ def local_asset_checks(root: Path = ROOT) -> list[CheckResult]:
             )
         )
     except Exception as exc:
-        results.append(CheckResult("Chroma indexed sources", "FAIL", f"조회 실패: {type(exc).__name__}"))
+        results.append(
+            CheckResult(
+                "Chroma indexed sources",
+                "FAIL",
+                f"조회 실패: {type(exc).__name__}: {exc}",
+            )
+        )
 
     pdf_mtimes = [path.stat().st_mtime for path in (root / "corpus").glob("**/*.pdf")]
     index_mtimes = [path.stat().st_mtime for path in persist_dir.glob("**/*") if path.is_file()]
@@ -234,6 +249,8 @@ def command_check(
         check=False,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         env=environment,
     )
     if completed.returncode == 0 and (
