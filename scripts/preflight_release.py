@@ -23,6 +23,7 @@ EXPECTED_PDF_COUNTS = {
     "methodology": 2,
 }
 SECRET_TEMPLATE_KEYS = ("AZURE_OPENAI_API_KEY", "LANGSMITH_API_KEY")
+REQUIRED_GITIGNORE_PATTERNS = frozenset({".env", "data/chroma/", "/corpus/**/*.pdf"})
 OFFLINE_ENV_KEYS = (
     "AZURE_OPENAI_API_KEY",
     "AZURE_OPENAI_ENDPOINT",
@@ -61,12 +62,12 @@ def _parse_env_template(path: Path) -> dict[str, str]:
     return values
 
 
-def _git_ignored(path: str) -> bool:
-    return subprocess.run(
-        ["git", "check-ignore", "--quiet", path],
-        cwd=ROOT,
-        check=False,
-    ).returncode == 0
+def _gitignore_patterns(path: Path) -> set[str]:
+    return {
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
 
 
 def static_checks(root: Path = ROOT) -> list[CheckResult]:
@@ -80,21 +81,22 @@ def static_checks(root: Path = ROOT) -> list[CheckResult]:
             "API key 값 비어 있음" if not filled_secret_keys else "값이 채워진 키 존재",
         )
     )
-    ignored_targets = (
-        ".env",
-        "data/chroma",
-        "corpus/methodology/methodology_var_cvar_2026.pdf",
-    )
-    not_ignored = [path for path in ignored_targets if not _git_ignored(path)]
+    ignore_patterns = _gitignore_patterns(root / ".gitignore")
+    missing_ignore_patterns = REQUIRED_GITIGNORE_PATTERNS.difference(ignore_patterns)
     results.append(
         _result(
             "local assets gitignore",
-            not not_ignored,
-            "비밀·PDF·Chroma 무시됨" if not not_ignored else "무시되지 않는 경로 존재",
+            not missing_ignore_patterns,
+            (
+                "비밀·PDF·Chroma 무시 규칙 존재"
+                if not missing_ignore_patterns
+                else "필수 무시 규칙 누락"
+            ),
         )
     )
+    secret_pattern = "lsv" + "2_|sk-" + "[A-Za-z0-9]{10,}"
     secret_scan = subprocess.run(
-        ["git", "grep", "-I", "-E", "lsv2_|sk-[A-Za-z0-9]{10,}"],
+        ["git", "grep", "-I", "-E", secret_pattern],
         cwd=root,
         check=False,
         capture_output=True,

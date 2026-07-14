@@ -6,6 +6,7 @@ from scripts.preflight_release import (
     EXPECTED_PDF_COUNTS,
     OFFLINE_ENV_KEYS,
     _parse_env_template,
+    _gitignore_patterns,
     command_check,
     corpus_pdf_counts,
     offline_environment,
@@ -34,6 +35,13 @@ def test_parse_env_template_ignores_comments_and_preserves_non_secret_defaults(t
         "AZURE_OPENAI_API_KEY": "",
         "LANGSMITH_ENDPOINT": "https://apac.api.smith.langchain.com",
     }
+
+
+def test_gitignore_patterns_ignore_comments(tmp_path: Path):
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text("# local only\n.env\ndata/chroma/\n", encoding="utf-8")
+
+    assert _gitignore_patterns(gitignore) == {".env", "data/chroma/"}
 
 
 def test_offline_environment_removes_external_credentials(monkeypatch):
