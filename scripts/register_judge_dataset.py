@@ -232,11 +232,12 @@ def exact_match(run: Run, example: Example) -> dict:
 
 def _summary_accuracy(group: str):
     def evaluator(runs: Sequence[Run], examples: Sequence[Example]) -> dict:
-        selected = [
-            (run, example)
-            for run, example in zip(runs, examples, strict=True)
-            if (example.metadata or {}).get("evaluation_group") == group
-        ]
+        examples_by_id = {str(example.id): example for example in examples}
+        selected = []
+        for run in runs:
+            example = examples_by_id.get(str(run.reference_example_id))
+            if example and (example.metadata or {}).get("evaluation_group") == group:
+                selected.append((run, example))
         correct = sum(exact_match(run, example)["score"] for run, example in selected)
         score = correct / len(selected) if selected else 0.0
         return {
@@ -310,9 +311,7 @@ def main() -> None:
     client = build_client()
     if args.upload:
         dataset, response = upsert_dataset(client, args.dataset_name, examples)
-        count = getattr(response, "count", None)
-        if count is None and isinstance(response, dict):
-            count = response.get("count")
+        count = response.get("count")
         print(f"Dataset upsert 완료: name={dataset.name}, id={dataset.id}, examples={count}")
     elif not client.has_dataset(dataset_name=args.dataset_name):
         raise RuntimeError("Dataset이 없습니다. 먼저 --upload를 실행하세요.")

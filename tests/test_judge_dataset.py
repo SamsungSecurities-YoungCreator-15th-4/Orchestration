@@ -7,6 +7,7 @@ from uuid import UUID
 
 from scripts.register_judge_dataset import (
     DATASET_NAME,
+    _summary_accuracy,
     build_dataset_examples,
     dataset_summary,
     exact_match,
@@ -154,3 +155,48 @@ def test_exact_match_allows_additional_observed_failure_axes():
     )
 
     assert exact_match(run, example)["score"] == 1
+
+
+def test_summary_accuracy_matches_runs_by_reference_example_id():
+    first_id = UUID("f434eaec-daf7-4d9e-a73b-92a47527f7f2")
+    second_id = UUID("73ed3eec-2d43-4c10-b723-651e7d9293af")
+    first_example = SimpleNamespace(
+        id=first_id,
+        metadata={"evaluation_group": "deterministic"},
+        outputs={
+            "passed": True,
+            "required_failed_axes": [],
+            "required_manual_review_flags": [],
+        },
+    )
+    second_example = SimpleNamespace(
+        id=second_id,
+        metadata={"evaluation_group": "deterministic"},
+        outputs={
+            "passed": False,
+            "required_failed_axes": ["numeric_consistency"],
+            "required_manual_review_flags": [],
+        },
+    )
+    runs = [
+        SimpleNamespace(
+            reference_example_id=first_id,
+            outputs={"passed": True, "failed_axes": [], "manual_review_flags": []},
+        ),
+        SimpleNamespace(
+            reference_example_id=second_id,
+            outputs={
+                "passed": False,
+                "failed_axes": ["numeric_consistency"],
+                "manual_review_flags": [],
+            },
+        ),
+    ]
+
+    result = _summary_accuracy("deterministic")(runs, [second_example, first_example])
+
+    assert result == {
+        "key": "accuracy_deterministic",
+        "score": 1.0,
+        "comment": "2/2",
+    }
