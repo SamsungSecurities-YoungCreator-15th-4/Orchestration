@@ -159,9 +159,9 @@ def _evidence_rows(chunks: list[dict]) -> list[dict]:
             and char_end - char_start >= CHUNK_SIZE
         )
 
-        if starts_mid_document and len(sentences) > 1:
+        if starts_mid_document:
             sentences = sentences[1:]
-        if full_sized_chunk and len(sentences) > 1 and not _SENTENCE_END_RE.search(sentences[-1]):
+        if full_sized_chunk and sentences and not _SENTENCE_END_RE.search(sentences[-1]):
             sentences = sentences[:-1]
 
         readable_sentences = [

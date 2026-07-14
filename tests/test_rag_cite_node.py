@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.nodes.judge_eval import judge_eval
 from app.nodes.rag_cite import _build_query, _evidence_rows, parse_candidates, rag_cite
 from app.rag.citations import verify_citations
+from app.rag.ingest import CHUNK_SIZE
 
 REAL_SENTENCE = "스트레스 테스트는 역사적 VaR가 포착하지 못하는 꼬리 위험을 보완한다."
 
@@ -241,6 +242,34 @@ def test_evidence_rows_remove_fixed_chunk_boundary_fragments():
             "source": "methodology.pdf",
         }
     ]
+
+
+def test_evidence_rows_remove_single_leading_chunk_fragment():
+    chunks = [
+        {
+            "chunk_id": "methodology.pdf::0002",
+            "source": "methodology.pdf",
+            "text": "이전 청크에서 시작한 문장의 남은 조각입니다.",
+            "char_start": 800,
+            "char_end": 840,
+        }
+    ]
+
+    assert _evidence_rows(chunks) == []
+
+
+def test_evidence_rows_remove_single_trailing_chunk_fragment():
+    chunks = [
+        {
+            "chunk_id": "methodology.pdf::0001",
+            "source": "methodology.pdf",
+            "text": "다음 청크로 이어지는 미완성 문장 조각",
+            "char_start": 0,
+            "char_end": CHUNK_SIZE,
+        }
+    ]
+
+    assert _evidence_rows(chunks) == []
 
 
 def test_evidence_rows_skip_unreadable_unspaced_pdf_sentence():
