@@ -443,7 +443,7 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
             citation_extra = citation.extra if isinstance(citation.extra, dict) else {}
             citation.extra = {
                 **citation_extra,
-                "chunk_text": chunk["text"],
+                "chunk_text": chunk.get("text", ""),
                 "category": chunk.get("category", ""),
             }
         all_verified.extend(verified)
