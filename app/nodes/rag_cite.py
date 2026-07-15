@@ -15,6 +15,7 @@ judge 재작성 루프로 재방문될 수 있으므로, 반환값은 항상 exp
 
 LLM/retriever는 의존성 주입이 가능해 테스트에서 fake를 넣을 수 있다.
 """
+
 from __future__ import annotations
 
 import json
@@ -115,7 +116,11 @@ def _build_explanations(
     ]
     if judge_feedback:
         explanations.append(
-            {"topic": "재작성 반영", "text": f"judge 피드백 반영: {judge_feedback}", "revision": revision}
+            {
+                "topic": "재작성 반영",
+                "text": f"judge 피드백 반영: {judge_feedback}",
+                "revision": revision,
+            }
         )
     return explanations
 
@@ -149,7 +154,11 @@ def _evidence_rows(chunks: list[dict]) -> list[dict]:
         if not normalized:
             continue
 
-        sentences = [part.strip() for part in _SENTENCE_SPLIT_RE.split(normalized) if part.strip()]
+        sentences = [
+            part.strip()
+            for part in _SENTENCE_SPLIT_RE.split(normalized)
+            if part.strip()
+        ]
         char_start = chunk.get("char_start")
         char_end = chunk.get("char_end")
         starts_mid_document = isinstance(char_start, int) and char_start > 0
@@ -161,7 +170,11 @@ def _evidence_rows(chunks: list[dict]) -> list[dict]:
 
         if starts_mid_document:
             sentences = sentences[1:]
-        if full_sized_chunk and sentences and not _SENTENCE_END_RE.search(sentences[-1]):
+        if (
+            full_sized_chunk
+            and sentences
+            and not _SENTENCE_END_RE.search(sentences[-1])
+        ):
             sentences = sentences[:-1]
 
         readable_sentences = [
@@ -180,6 +193,29 @@ def _evidence_rows(chunks: list[dict]) -> list[dict]:
                 }
             )
     return rows
+
+
+def _valid_chunks(chunks: list[dict]) -> list[dict]:
+    """검색 계약을 만족하는 청크만 남기고 문자열 metadata를 정규화한다."""
+    valid: list[dict] = []
+    for chunk in chunks:
+        if not isinstance(chunk, dict):
+            continue
+        chunk_id = chunk.get("chunk_id")
+        text = chunk.get("text")
+        if not isinstance(chunk_id, str) or not chunk_id.strip():
+            continue
+        if not isinstance(text, str):
+            continue
+        normalized = dict(chunk)
+        normalized["source"] = (
+            chunk.get("source") if isinstance(chunk.get("source"), str) else ""
+        )
+        normalized["category"] = (
+            chunk.get("category") if isinstance(chunk.get("category"), str) else ""
+        )
+        valid.append(normalized)
+    return valid
 
 
 def parse_candidates(raw: str, chunks: list[dict]) -> list[Citation]:
@@ -209,7 +245,9 @@ def parse_candidates(raw: str, chunks: list[dict]) -> list[Citation]:
             continue
         evidence = evidence_by_id.get(str(it.get("evidence_id", "")).strip())
         quote = evidence["quote"] if evidence else str(it.get("quote", "")).strip()
-        chunk_id = evidence["chunk_id"] if evidence else str(it.get("chunk_id", "")).strip()
+        chunk_id = (
+            evidence["chunk_id"] if evidence else str(it.get("chunk_id", "")).strip()
+        )
         if not quote or not chunk_id:
             continue
         out.append(
@@ -241,7 +279,9 @@ def _build_prompt(
         )
         for row in _evidence_rows(chunks)
     ]
-    feedback_line = f"\n직전 judge 피드백(반영할 것): {judge_feedback}\n" if judge_feedback else ""
+    feedback_line = (
+        f"\n직전 judge 피드백(반영할 것): {judge_feedback}\n" if judge_feedback else ""
+    )
     return (
         "너는 리스크 리포트의 인용 담당자다. 아래 단일 topic 설명의 수치·주장을 "
         "뒷받침하는 인용을 이 topic 전용 근거 청크에서만 고른다.\n"
@@ -357,10 +397,17 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
         topic = str(explanation.get("topic", "")).strip()
         query = _build_query(topic, metrics)
         try:
-            chunks = retrieve_chunks(retriever, query)
+            retrieved_chunks = retrieve_chunks(retriever, query)
         except Exception as e:
             log.warning("topic=%s RAG 검색 중 오류 — 해당 topic 건너뜀: %s", topic, e)
             continue
+        chunks = _valid_chunks(retrieved_chunks)
+        if len(chunks) != len(retrieved_chunks):
+            log.warning(
+                "topic=%s 검색 결과에서 계약 위반 청크 %d건 제외",
+                topic,
+                len(retrieved_chunks) - len(chunks),
+            )
         if not chunks:
             log.warning("topic=%s 검색 결과 청크 없음 — 해당 topic 건너뜀", topic)
             continue
@@ -380,18 +427,22 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
             llm_claim = candidate.claim
             candidate.claim = topic
             if llm_claim and llm_claim != topic:
-                candidate.extra = {**candidate.extra, "llm_claim": llm_claim}
+                candidate_extra = (
+                    candidate.extra if isinstance(candidate.extra, dict) else {}
+                )
+                candidate.extra = {**candidate_extra, "llm_claim": llm_claim}
 
         verified, rejected = verify_citations(candidates, chunks)
         chunk_by_id = {
             chunk.get("chunk_id"): chunk
             for chunk in chunks
-            if chunk.get("chunk_id")
+            if isinstance(chunk, dict) and chunk.get("chunk_id")
         }
         for citation in verified:
             chunk = chunk_by_id.get(citation.chunk_id) or {}
+            citation_extra = citation.extra if isinstance(citation.extra, dict) else {}
             citation.extra = {
-                **citation.extra,
+                **citation_extra,
                 "chunk_text": chunk.get("text", ""),
                 "category": chunk.get("category", ""),
             }

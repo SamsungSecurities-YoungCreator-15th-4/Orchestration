@@ -1,4 +1,5 @@
 """LangGraph 실행과 LangSmith trace를 연결하는 얇은 표준부품 래퍼."""
+
 from __future__ import annotations
 
 import logging
@@ -73,7 +74,9 @@ def merge_observability(previous, current) -> dict:
     }
 
 
-def _get_run_url(run_id: uuid.UUID, *, endpoint: str, api_key: str, project: str) -> str | None:
+def _get_run_url(
+    run_id: uuid.UUID, *, endpoint: str, api_key: str, project: str
+) -> str | None:
     """LangSmith 표준 Client로 아직 시작 전인 root run의 UI URL을 계산한다."""
     try:
         from langsmith import Client
@@ -136,9 +139,15 @@ def prepare_trace_invocation(
         else None
     )
 
-    metadata = dict(config.get("metadata") or {})
+    raw_metadata = config.get("metadata")
+    metadata = dict(raw_metadata) if isinstance(raw_metadata, dict) else {}
     metadata.update({"trace_id": correlation_id, "graph_phase": phase})
-    tags = list(config.get("tags") or [])
+    raw_tags = config.get("tags")
+    tags = (
+        [tag for tag in raw_tags if isinstance(tag, str)]
+        if isinstance(raw_tags, (list, tuple, set))
+        else []
+    )
     tags.extend(["risk-report", f"phase:{phase}"])
     config.update(
         {
@@ -197,6 +206,9 @@ def annotate_current_run(*, metadata: dict, tags: list[str] | None = None) -> No
         return
     if run is None:
         return
-    run.add_metadata(metadata)
-    if tags:
-        run.add_tags(tags)
+    try:
+        run.add_metadata(metadata)
+        if tags:
+            run.add_tags(tags)
+    except Exception as exc:
+        log.warning("LangSmith run 어노테이션 실패(실행은 계속): %s", exc)

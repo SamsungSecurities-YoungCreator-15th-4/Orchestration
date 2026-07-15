@@ -1,4 +1,5 @@
 """LLM 프롬프트·모델 정보를 비밀값 없이 결정론적으로 기록한다."""
+
 from __future__ import annotations
 
 import hashlib
@@ -25,9 +26,8 @@ def model_version_record(llm=None, responses: Sequence[object] = ()) -> dict:
     deployment = None
     model = None
     if llm is not None:
-        deployment = (
-            getattr(llm, "deployment_name", None)
-            or getattr(llm, "azure_deployment", None)
+        deployment = getattr(llm, "deployment_name", None) or getattr(
+            llm, "azure_deployment", None
         )
         model = getattr(llm, "model_name", None) or getattr(llm, "model", None)
 
@@ -57,17 +57,23 @@ def with_llm_audit(
 ) -> dict:
     """기존 run_config를 보존하며 component별 최신/이력 감사를 기록한다."""
     updated = dict(run_config)
-    audit = dict(updated.get("audit") or {})
-    llm_audit = dict(audit.get("llm") or {})
-    component_audit = dict(llm_audit.get(component) or {})
+    raw_audit = updated.get("audit")
+    audit = dict(raw_audit) if isinstance(raw_audit, Mapping) else {}
+    raw_llm_audit = audit.get("llm")
+    llm_audit = dict(raw_llm_audit) if isinstance(raw_llm_audit, Mapping) else {}
+    raw_component_audit = llm_audit.get(component)
+    component_audit = (
+        dict(raw_component_audit) if isinstance(raw_component_audit, Mapping) else {}
+    )
     record = {
         "attempt": attempt,
         "prompt_hash": prompt_hash_record(prompts),
         "model_version": model_version_record(llm, responses),
     }
+    raw_history = component_audit.get("history")
     history = [
         item
-        for item in component_audit.get("history") or []
+        for item in (raw_history if isinstance(raw_history, list) else [])
         if isinstance(item, dict) and item.get("attempt") != attempt
     ]
     history.append(record)
