@@ -18,7 +18,8 @@ from app.rag.ingest import (
     infer_published_at,
 )
 
-DEFAULT_TOP_K = 4  # 반환 청크 수 기본값
+# category 안에서 여러 문서의 후보를 확보한 뒤 노드 계층에서 출처별 상한을 적용한다.
+DEFAULT_TOP_K = 12
 
 
 def _invoke_with_category_filter(retriever, query: str, category: str):
