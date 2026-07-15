@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
 from app.rag.ingest import (
@@ -17,6 +18,24 @@ from app.rag.ingest import (
 )
 
 DEFAULT_TOP_K = 4  # 반환 청크 수 기본값
+
+
+def _invoke_with_category_filter(retriever, query: str, category: str):
+    """retriever 종류에 맞게 category filter를 주입하되 원본은 변경하지 않는다.
+
+    VectorStoreRetriever 계열은 버전별 invoke kwargs 전달 규약 차이를 피하기 위해
+    search_kwargs를 가진 얕은 복사본에 filter를 넣는다. 커스텀 retriever는 기존
+    invoke kwargs 계약을 사용하며, filter를 제거한 무필터 재시도는 허용하지 않는다.
+    """
+    search_kwargs = getattr(retriever, "search_kwargs", None)
+    if isinstance(search_kwargs, dict):
+        filtered_retriever = copy.copy(retriever)
+        filtered_retriever.search_kwargs = {
+            **search_kwargs,
+            "filter": {"category": category},
+        }
+        return filtered_retriever.invoke(query) or []
+    return retriever.invoke(query, filter={"category": category}) or []
 
 
 def index_exists(persist_dir: str = DEFAULT_PERSIST_DIR) -> bool:
@@ -71,8 +90,11 @@ def retrieve_chunks(
         raise ValueError(
             f"지원하지 않는 RAG category입니다: {category!r} (허용값: {CATEGORIES})"
         )
-    invoke_kwargs = {"filter": {"category": category}} if category else {}
-    docs = retriever.invoke(query, **invoke_kwargs) or []
+    docs = (
+        _invoke_with_category_filter(retriever, query, category)
+        if category
+        else retriever.invoke(query) or []
+    )
     out: list[dict] = []
     for d in docs:
         md = d.metadata or {}

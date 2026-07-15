@@ -21,6 +21,7 @@ from app.nodes.rag_cite import (
 from app.rag.citations import Citation
 from app.rag.citations import verify_citations
 from app.rag.ingest import CHUNK_SIZE
+from app.rag.retriever import retrieve_chunks
 
 REAL_SENTENCE = "스트레스 테스트는 역사적 VaR가 포착하지 못하는 꼬리 위험을 보완한다."
 
@@ -78,6 +79,50 @@ class _FakeLLM:
             ],
             ensure_ascii=False,
         )
+
+
+class _SearchKwargsRetriever:
+    """실제 VectorStoreRetriever의 search_kwargs 계약을 흉내내는 fake."""
+
+    def __init__(self):
+        self.search_kwargs = {"k": 4}
+        self.calls: list[dict] = []
+
+    def invoke(self, query: str, **kwargs):
+        self.calls.append(
+            {
+                "query": query,
+                "search_kwargs": dict(self.search_kwargs),
+                "invoke_kwargs": dict(kwargs),
+            }
+        )
+        category = (self.search_kwargs.get("filter") or {}).get("category")
+        return [
+            _FakeDoc(
+                REAL_SENTENCE,
+                {
+                    "chunk_id": "macro.pdf::0001",
+                    "source": "macro.pdf",
+                    "category": category,
+                },
+            )
+        ]
+
+
+def test_retrieve_chunks_copies_search_kwargs_retriever_before_filtering():
+    retriever = _SearchKwargsRetriever()
+
+    chunks = retrieve_chunks(retriever, "고금리 강달러", category="macro")
+
+    assert retriever.search_kwargs == {"k": 4}
+    assert retriever.calls == [
+        {
+            "query": "고금리 강달러",
+            "search_kwargs": {"k": 4, "filter": {"category": "macro"}},
+            "invoke_kwargs": {},
+        }
+    ]
+    assert chunks[0]["category"] == "macro"
 
 
 class _PassingJudgeLLM:
