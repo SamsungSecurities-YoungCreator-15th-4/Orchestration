@@ -9,6 +9,7 @@ from scripts.preflight_release import (
     EXPECTED_PDF_COUNTS,
     OFFLINE_ENV_KEYS,
     REQUIRED_GITIGNORE_PATTERNS,
+    STREAMLIT_SECRET_KEYS,
     _parse_env_template,
     _gitignore_patterns,
     command_check,
@@ -16,6 +17,7 @@ from scripts.preflight_release import (
     local_asset_checks,
     offline_environment,
     static_checks,
+    streamlit_release_checks,
 )
 
 
@@ -48,6 +50,64 @@ def test_gitignore_patterns_ignore_comments(tmp_path: Path):
     gitignore.write_text("# local only\n.env\ndata/chroma/\n", encoding="utf-8")
 
     assert _gitignore_patterns(gitignore) == {".env", "data/chroma/"}
+
+
+def test_streamlit_release_contract_requires_safe_template_and_pinned_dependencies(
+    tmp_path: Path,
+):
+    streamlit_dir = tmp_path / ".streamlit"
+    streamlit_dir.mkdir()
+    values = {
+        key: '""'
+        for key in STREAMLIT_SECRET_KEYS
+    }
+    values.update(
+        {
+            "RAG_INDEX_REQUIRED": "true",
+            "LANGSMITH_TRACING": "true",
+            "LANGSMITH_HIDE_INPUTS": "true",
+            "LANGSMITH_HIDE_OUTPUTS": "true",
+        }
+    )
+    (streamlit_dir / "secrets.toml.example").write_text(
+        "\n".join(f"{key} = {value}" for key, value in sorted(values.items())),
+        encoding="utf-8",
+    )
+    (tmp_path / "requirements.txt").write_text(
+        "streamlit==1.52.1\nlanggraph==1.0.4\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".gitignore").write_text(
+        ".streamlit/secrets.toml\n",
+        encoding="utf-8",
+    )
+
+    assert all(result.status == "PASS" for result in streamlit_release_checks(tmp_path))
+
+
+def test_streamlit_release_contract_fails_on_secret_or_unpinned_dependency(
+    tmp_path: Path,
+):
+    streamlit_dir = tmp_path / ".streamlit"
+    streamlit_dir.mkdir()
+    (streamlit_dir / "secrets.toml.example").write_text(
+        'AZURE_OPENAI_API_KEY = "committed-secret"\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "requirements.txt").write_text("streamlit\n", encoding="utf-8")
+    (tmp_path / ".gitignore").write_text(".env\n", encoding="utf-8")
+
+    failed = {
+        result.name for result in streamlit_release_checks(tmp_path)
+        if result.status == "FAIL"
+    }
+
+    assert failed == {
+        "Streamlit secret key contract",
+        "Streamlit secret placeholders",
+        "Streamlit dependency pins",
+        "Streamlit local secrets gitignore",
+    }
 
 
 def test_offline_environment_removes_external_credentials(monkeypatch):

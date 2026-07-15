@@ -1,6 +1,7 @@
 # 환경/비밀
 .env
 .venv/
+.streamlit/secrets.toml
 
 # 파이썬
 __pycache__/

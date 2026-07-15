@@ -29,6 +29,34 @@ SECRET_TEMPLATE_KEYS = (
     "RAG_INDEX_MANIFEST_URL",
 )
 REQUIRED_GITIGNORE_PATTERNS = frozenset({".env", "data/chroma/", "/corpus/**/*.pdf"})
+STREAMLIT_SECRET_KEYS = frozenset(
+    {
+        "AZURE_OPENAI_API_KEY",
+        "AZURE_OPENAI_ENDPOINT",
+        "AZURE_OPENAI_API_VERSION",
+        "AZURE_OPENAI_DEPLOYMENT",
+        "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
+        "RAG_INDEX_BLOB_URL",
+        "RAG_INDEX_MANIFEST_URL",
+        "RAG_INDEX_VERSION",
+        "RAG_INDEX_SHA256",
+        "RAG_INDEX_REQUIRED",
+        "LANGSMITH_TRACING",
+        "LANGSMITH_ENDPOINT",
+        "LANGSMITH_API_KEY",
+        "LANGSMITH_PROJECT",
+        "LANGSMITH_HIDE_INPUTS",
+        "LANGSMITH_HIDE_OUTPUTS",
+    }
+)
+STREAMLIT_SENSITIVE_KEYS = frozenset(
+    {
+        "AZURE_OPENAI_API_KEY",
+        "RAG_INDEX_BLOB_URL",
+        "RAG_INDEX_MANIFEST_URL",
+        "LANGSMITH_API_KEY",
+    }
+)
 OFFLINE_ENV_KEYS = (
     "AZURE_OPENAI_API_KEY",
     "AZURE_OPENAI_ENDPOINT",
@@ -75,6 +103,60 @@ def _gitignore_patterns(path: Path) -> set[str]:
     }
 
 
+def streamlit_release_checks(root: Path = ROOT) -> list[CheckResult]:
+    """Community Cloud 배포 파일이 재현성·비밀정보 계약을 지키는지 확인한다."""
+    template_path = root / ".streamlit" / "secrets.toml.example"
+    template = _parse_env_template(template_path) if template_path.is_file() else {}
+    template_keys = set(template)
+    missing_keys = sorted(STREAMLIT_SECRET_KEYS - template_keys)
+    extra_keys = sorted(template_keys - STREAMLIT_SECRET_KEYS)
+    secret_contract_valid = not missing_keys and not extra_keys
+    if secret_contract_valid:
+        secret_detail = f"루트 수준 {len(template_keys)}개 키"
+    else:
+        secret_detail = f"누락={missing_keys}, 초과={extra_keys}"
+
+    filled_sensitive = sorted(
+        key for key in STREAMLIT_SENSITIVE_KEYS if template.get(key) != '""'
+    )
+    requirements_path = root / "requirements.txt"
+    requirements = (
+        [
+            line.strip()
+            for line in requirements_path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        if requirements_path.is_file()
+        else []
+    )
+    unpinned = [line for line in requirements if "==" not in line]
+    gitignore_path = root / ".gitignore"
+    ignore_patterns = _gitignore_patterns(gitignore_path) if gitignore_path.is_file() else set()
+
+    return [
+        _result("Streamlit secret key contract", secret_contract_valid, secret_detail),
+        _result(
+            "Streamlit secret placeholders",
+            not filled_sensitive,
+            "민감값 비어 있음" if not filled_sensitive else "민감값이 채워진 키 존재",
+        ),
+        _result(
+            "Streamlit dependency pins",
+            bool(requirements) and not unpinned,
+            (
+                f"직접 의존성 {len(requirements)}개 고정"
+                if requirements and not unpinned
+                else f"미고정={unpinned}"
+            ),
+        ),
+        _result(
+            "Streamlit local secrets gitignore",
+            ".streamlit/secrets.toml" in ignore_patterns,
+            "추적 제외" if ".streamlit/secrets.toml" in ignore_patterns else "규칙 누락",
+        ),
+    ]
+
+
 def static_checks(root: Path = ROOT) -> list[CheckResult]:
     results: list[CheckResult] = []
     template = _parse_env_template(root / ".env.example")
@@ -86,6 +168,7 @@ def static_checks(root: Path = ROOT) -> list[CheckResult]:
             "API key 값 비어 있음" if not filled_secret_keys else "값이 채워진 키 존재",
         )
     )
+    results.extend(streamlit_release_checks(root))
     ignore_patterns = _gitignore_patterns(root / ".gitignore")
     missing_ignore_patterns = REQUIRED_GITIGNORE_PATTERNS.difference(ignore_patterns)
     results.append(
