@@ -4,11 +4,17 @@
 검색 결과는 청크 원문 + metadata를 온전히 보존해 반환한다
 (citations.verify_citations 검증에 원문이 필요하다).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 
-from app.rag.ingest import COLLECTION_NAME, DEFAULT_PERSIST_DIR, build_embedder
+from app.rag.ingest import (
+    CATEGORIES,
+    COLLECTION_NAME,
+    DEFAULT_PERSIST_DIR,
+    build_embedder,
+)
 
 DEFAULT_TOP_K = 4  # 반환 청크 수 기본값
 
@@ -46,13 +52,27 @@ def build_retriever(
     return store.as_retriever(search_kwargs={"k": k})
 
 
-def retrieve_chunks(retriever, query: str) -> list[dict]:
+def retrieve_chunks(
+    retriever,
+    query: str,
+    *,
+    category: str | None = None,
+) -> list[dict]:
     """retriever로 검색해 청크 원문+metadata를 보존한 dict 목록으로 반환.
 
     각 항목: {"text", "chunk_id", "source", "category", "char_start", "char_end"}
     (metadata 키가 없으면 빈 값으로 채운다 — 검증 로직이 KeyError 없이 동작하도록.)
+
+    category가 주어지면 Chroma metadata filter를 검색 시점에 적용한다. 검색 뒤
+    노드 계층에서도 category를 다시 검증하므로, 벡터 검색 구현이 filter 계약을
+    어기더라도 다른 역할의 문서가 인용 후보로 섞이지 않는다.
     """
-    docs = retriever.invoke(query) or []
+    if category is not None and category not in CATEGORIES:
+        raise ValueError(
+            f"지원하지 않는 RAG category입니다: {category!r} (허용값: {CATEGORIES})"
+        )
+    invoke_kwargs = {"filter": {"category": category}} if category else {}
+    docs = retriever.invoke(query, **invoke_kwargs) or []
     out: list[dict] = []
     for d in docs:
         md = d.metadata or {}
