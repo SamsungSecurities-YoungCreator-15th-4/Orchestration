@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Mapping
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from app.rag.ingest import (
     CATEGORIES,
@@ -403,6 +403,16 @@ def _validate_https_url(url: str) -> None:
         or not parsed.query
     ):
         raise IndexSupplyError("Azure Blob URL은 read-only SAS가 포함된 HTTPS 주소여야 합니다.")
+
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    permissions = [
+        value
+        for key, values in query.items()
+        if key.lower() == "sp"
+        for value in values
+    ]
+    if permissions and any(value.lower() != "r" for value in permissions):
+        raise IndexSupplyError("Azure Blob URL에는 읽기 전용 SAS만 허용됩니다.")
 
 
 def _download_bytes(url: str, *, limit: int) -> bytes:

@@ -303,17 +303,22 @@ def hallucination(
     llm,
     expected_dates: set[str] | None = None,
 ) -> tuple[bool, str]:
-    evidence = [
-        {
-            "claim": citation.get("claim", ""),
-            "quote": citation.get("quote", ""),
-            "source": citation.get("source", ""),
-            "chunk_id": citation.get("chunk_id", ""),
-            "chunk_text": (citation.get("extra") or {}).get("chunk_text", ""),
-        }
-        for citation in citations
-        if isinstance(citation, dict) and citation.get("verified") is True
-    ]
+    evidence = []
+    for citation in citations:
+        if not isinstance(citation, dict) or citation.get("verified") is not True:
+            continue
+        extra = citation.get("extra")
+        if not isinstance(extra, dict):
+            extra = {}
+        evidence.append(
+            {
+                "claim": citation.get("claim", ""),
+                "quote": citation.get("quote", ""),
+                "source": citation.get("source", ""),
+                "chunk_id": citation.get("chunk_id", ""),
+                "chunk_text": extra.get("chunk_text", ""),
+            }
+        )
     return _run_llm_axis(
         llm,
         axis="hallucination",
