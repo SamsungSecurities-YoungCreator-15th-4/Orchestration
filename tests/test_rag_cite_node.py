@@ -48,6 +48,7 @@ class _FakeRetriever:
                     "chunk_id": "doc_b.pdf::0003",
                     "source": "doc_b.pdf",
                     "category": category or "methodology",
+                    "published_at": "2026-05-01",
                     "char_start": 0,
                     "char_end": len(REAL_SENTENCE),
                 },
@@ -102,7 +103,7 @@ class _SearchKwargsRetriever:
                 REAL_SENTENCE,
                 {
                     "chunk_id": "macro.pdf::0001",
-                    "source": "macro.pdf",
+                    "source": "macro_202605.pdf",
                     "category": category,
                 },
             )
@@ -123,6 +124,7 @@ def test_retrieve_chunks_copies_search_kwargs_retriever_before_filtering():
         }
     ]
     assert chunks[0]["category"] == "macro"
+    assert chunks[0]["published_at"] == "2026-05-01"
 
 
 class _PassingJudgeLLM:
@@ -133,7 +135,14 @@ class _PassingJudgeLLM:
         )
 
 
-def test_only_verified_citations_recorded():
+def test_only_verified_citations_recorded(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        "app.nodes.rag_cite.annotate_current_run",
+        lambda *, metadata, tags=None: captured.update(
+            {"metadata": metadata, "tags": tags}
+        ),
+    )
     state = {
         "run_config": {"as_of_date": "2026-07-03"},
         "metrics": {"var": {"0.99": 1.23}},
@@ -149,6 +158,11 @@ def test_only_verified_citations_recorded():
     assert all(
         citation["extra"]["chunk_text"] == REAL_SENTENCE for citation in citations
     )
+    assert all(citation["extra"]["published_at"] == "2026-05-01" for citation in citations)
+    assert {
+        citation["extra"]["evidence_role"] for citation in citations
+    } == {"calculation_basis", "interpretation_reference"}
+    assert all(citation["extra"]["routing_reason"] for citation in citations)
     assert {citation["claim"] for citation in citations} == {
         "VaR 해석",
         "스트레스 시나리오",
@@ -169,6 +183,16 @@ def test_only_verified_citations_recorded():
         "거시환경·스트레스 개연성",
     }
     assert rag_audit["model_version"]["deployment"] == "test-deployment"
+    assert rag_audit["routing_contract"] == "rag-routing-v1"
+    assert {route["category"] for route in rag_audit["routes"]} == {
+        "methodology",
+        "macro",
+    }
+    assert captured["metadata"]["rag_route_categories"] == "macro,methodology"
+    assert captured["metadata"]["rag_evidence_roles"] == (
+        "calculation_basis,interpretation_reference"
+    )
+    assert captured["metadata"]["rag_missing_published_at"] == 0
 
 
 def test_rag_explanations_pass_judge_e2e_with_fake_llms():
@@ -193,6 +217,30 @@ def test_rag_explanations_pass_judge_e2e_with_fake_llms():
 
     assert judged["judge"]["passed"] is True
     assert judged["judge"]["rubric"]["disclaimer"]["passed"] is True
+
+
+def test_judge_rejects_tampered_rag_routing_role():
+    state = {
+        "run_config": {"as_of_date": "2026-07-03", "strict_citation_gate": True},
+        "approval": {"status": "locked"},
+        "metrics": {
+            "confidence": 0.99,
+            "horizons": {"1d": {"var_krw": 30_000_000}},
+            "meta": {
+                "computation_hash": "metric-hash",
+                "data_period": {"end": "2026-07-03"},
+            },
+        },
+    }
+    rag_out = rag_cite(state, llm=_FakeLLM(), retriever=_FakeRetriever())
+    rag_out["citations"][0]["extra"]["evidence_role"] = "interpretation_reference"
+
+    judged = judge_eval({**state, **rag_out}, llm=_PassingJudgeLLM())
+
+    assert judged["judge"]["passed"] is False
+    assert "citation_routing_contract" in {
+        item["axis"] for item in json.loads(judged["judge_feedback"])["failed_axes"]
+    }
 
 
 def test_rerun_overwrites_not_accumulates():

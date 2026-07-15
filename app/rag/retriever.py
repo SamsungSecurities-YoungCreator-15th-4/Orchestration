@@ -15,6 +15,7 @@ from app.rag.ingest import (
     COLLECTION_NAME,
     DEFAULT_PERSIST_DIR,
     build_embedder,
+    infer_published_at,
 )
 
 DEFAULT_TOP_K = 4  # 반환 청크 수 기본값
@@ -79,7 +80,8 @@ def retrieve_chunks(
 ) -> list[dict]:
     """retriever로 검색해 청크 원문+metadata를 보존한 dict 목록으로 반환.
 
-    각 항목: {"text", "chunk_id", "source", "category", "char_start", "char_end"}
+    각 항목: {"text", "chunk_id", "source", "category", "published_at",
+    "char_start", "char_end"}
     (metadata 키가 없으면 빈 값으로 채운다 — 검증 로직이 KeyError 없이 동작하도록.)
 
     category가 주어지면 Chroma metadata filter를 검색 시점에 적용한다. 검색 뒤
@@ -98,12 +100,15 @@ def retrieve_chunks(
     out: list[dict] = []
     for d in docs:
         md = d.metadata or {}
+        source = md.get("source", "")
         out.append(
             {
                 "text": d.page_content,
                 "chunk_id": md.get("chunk_id", ""),
-                "source": md.get("source", ""),
+                "source": source,
                 "category": md.get("category", ""),
+                "published_at": md.get("published_at", "")
+                or infer_published_at(source),
                 "char_start": md.get("char_start"),
                 "char_end": md.get("char_end"),
             }

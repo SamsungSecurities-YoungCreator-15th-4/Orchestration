@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import shutil
 import time
 from pathlib import Path
@@ -38,6 +39,8 @@ EMBEDDING_DEPLOYMENT_ENV = "AZURE_OPENAI_EMBEDDING_DEPLOYMENT"
 EMBED_BATCH_SIZE = 64
 RATE_LIMIT_WAIT_SECONDS = 65
 MAX_RATE_LIMIT_RETRIES = 20
+_SOURCE_YYYYMM_RE = re.compile(r"(?<!\d)(20\d{2})(0[1-9]|1[0-2])(?!\d)")
+_SOURCE_YYYY_RE = re.compile(r"(?<!\d)(20\d{2})(?!\d)")
 
 
 # ---------------------------------------------------------------------------
@@ -53,10 +56,34 @@ def make_chunk_id(source: str, index: int) -> str:
     return f"{source}::{index:04d}"
 
 
-def chunk_text(text: str, source: str, category: str) -> list[dict]:
+def infer_published_at(source: str) -> str:
+    """파일명의 YYYYMM/연도 표기에서 결정론적 발행 기준일을 추정한다.
+
+    코퍼스 원문에는 표준화된 발행일 metadata가 없으므로 월 단위 문서는 해당 월
+    1일, 연도 단위 문서는 해당 연도 1월 1일로 기록한다. 파일명에 연도가 없으면
+    빈 문자열을 반환해 Judge가 누락을 명시적으로 경고할 수 있게 한다.
+    """
+    if not isinstance(source, str):
+        return ""
+    month_match = _SOURCE_YYYYMM_RE.search(source)
+    if month_match:
+        return f"{month_match.group(1)}-{month_match.group(2)}-01"
+    year_match = _SOURCE_YYYY_RE.search(source)
+    if year_match:
+        return f"{year_match.group(1)}-01-01"
+    return ""
+
+
+def chunk_text(
+    text: str,
+    source: str,
+    category: str,
+    published_at: str | None = None,
+) -> list[dict]:
     """텍스트를 고정 파라미터로 결정론적으로 청킹한다.
 
-    각 청크 metadata: source(파일명), category(폴더명), chunk_id, char_start, char_end.
+    각 청크 metadata: source(파일명), category(폴더명), chunk_id, published_at,
+    char_start, char_end.
     """
     step = CHUNK_SIZE - CHUNK_OVERLAP
     if step <= 0:
@@ -76,6 +103,11 @@ def chunk_text(text: str, source: str, category: str) -> list[dict]:
                     "text": piece,
                     "source": source,
                     "category": category,
+                    "published_at": (
+                        published_at
+                        if isinstance(published_at, str)
+                        else infer_published_at(source)
+                    ),
                     "char_start": start,
                     "char_end": end,
                 }
@@ -167,13 +199,17 @@ def collect_corpus_texts(corpus_dir: str = DEFAULT_CORPUS_DIR) -> list[tuple[str
 
 
 def _chunk_metadata(chunk: dict) -> dict:
-    return {
+    metadata = {
         "source": chunk["source"],
         "category": chunk["category"],
         "chunk_id": chunk["chunk_id"],
         "char_start": chunk["char_start"],
         "char_end": chunk["char_end"],
     }
+    published_at = chunk.get("published_at")
+    if isinstance(published_at, str) and published_at:
+        metadata["published_at"] = published_at
+    return metadata
 
 
 def add_chunks_with_retries(
@@ -255,7 +291,14 @@ def build_index(
 
     all_chunks: list[dict] = []
     for name, text in accepted:
-        all_chunks.extend(chunk_text(text, source=name, category=category_by_name[name]))
+        all_chunks.extend(
+            chunk_text(
+                text,
+                source=name,
+                category=category_by_name[name],
+                published_at=infer_published_at(name),
+            )
+        )
 
     if not all_chunks:
         log.warning("인덱싱할 청크가 없습니다(모든 문서가 거부되었을 수 있음).")

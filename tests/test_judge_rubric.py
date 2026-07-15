@@ -431,6 +431,50 @@ def test_judge_eval_normal_e2e_passes_with_fake_llm():
     assert all(axis["passed"] for axis in out["judge"]["rubric"].values())
 
 
+def test_old_house_view_adds_non_blocking_freshness_warning():
+    state = _normal_state()
+    route = {
+        "topic": "VaR 설명",
+        "category": "house_view",
+        "evidence_role": "interpretation_reference",
+        "routing_reason": "CVaR 기여도 1위 자산군: 국내주식(domestic_equity)",
+    }
+    state["run_config"]["audit"] = {
+        "llm": {
+            "rag_cite": {
+                "latest": {
+                    "routing_contract": "rag-routing-v1",
+                    "routes": [route],
+                }
+            }
+        }
+    }
+    state["citations"] = [
+        {
+            **VERIFIED_CITATION,
+            "extra": {
+                **VERIFIED_CITATION["extra"],
+                "category": "house_view",
+                "evidence_role": "interpretation_reference",
+                "routing_reason": route["routing_reason"],
+                "published_at": "2025-05-01",
+            },
+        }
+    ]
+
+    out = judge_eval(state, llm=_AxisLLM())
+
+    freshness = next(
+        check
+        for check in out["judge"]["checks"]
+        if check["name"] == "citation_publication_freshness"
+    )
+    assert out["judge"]["passed"] is True
+    assert freshness["passed"] is False
+    assert freshness["required"] is False
+    assert any("최신성 중대 경고" in flag for flag in out["judge"]["manual_review_flags"])
+
+
 def test_judge_retry_limit_exits_with_manual_review_warning():
     state = _normal_state()
     failing_llm = _AxisLLM(hallucination_passed=False)

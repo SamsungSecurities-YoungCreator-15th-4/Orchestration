@@ -25,6 +25,7 @@ import re
 from app.llm.audit import with_llm_audit
 from app.observability.langsmith import annotate_current_run
 from app.rag.citations import Citation, verify_citations
+from app.rag.contracts import EVIDENCE_ROLES, ROUTING_CONTRACT
 from app.rag.ingest import CHUNK_SIZE
 from app.state import RiskState
 
@@ -126,6 +127,40 @@ def _tax_issue_terms(ips: dict) -> tuple[str, ...]:
 def _category_for_topic(topic: str) -> str:
     """설명 topic을 합의된 단일 corpus category로 라우팅한다."""
     return TOPIC_CATEGORIES.get(topic, "methodology")
+
+
+def _routing_reason(topic: str, metrics: dict, ips: dict) -> str:
+    """민감 원문 없이 topic이 해당 문서군으로 간 결정론적 사유를 만든다."""
+    category = _category_for_topic(topic)
+    if category == "macro":
+        return "과제 전제인 고금리·강달러 거시환경의 개연성 검증"
+    if category == "house_view":
+        asset_class = _top_cvar_asset(metrics)
+        asset_label = ASSET_LABELS.get(asset_class or "", asset_class or "미확인")
+        return f"CVaR 기여도 1위 자산군: {asset_label}({asset_class or 'unknown'})"
+    if category == "tax":
+        terms = _tax_issue_terms(ips)
+        return "IPS 세무 키워드: " + ", ".join(terms)
+    return f"정량 결과의 계산·해석 방법론 근거: {topic}"
+
+
+def _routing_records(
+    explanations: list[dict], metrics: dict, ips: dict
+) -> list[dict]:
+    """이번 실행에서 활성화된 검색 route를 감사 가능한 형태로 고정한다."""
+    records: list[dict] = []
+    for explanation in explanations:
+        topic = str(explanation.get("topic", "")).strip()
+        category = _category_for_topic(topic)
+        records.append(
+            {
+                "topic": topic,
+                "category": category,
+                "evidence_role": EVIDENCE_ROLES[category],
+                "routing_reason": _routing_reason(topic, metrics, ips),
+            }
+        )
+    return records
 
 
 def _build_query(topic: str, metrics: dict, ips: dict | None = None) -> str:
@@ -364,6 +399,11 @@ def _valid_chunks(
         normalized["category"] = (
             chunk.get("category") if isinstance(chunk.get("category"), str) else ""
         )
+        normalized["published_at"] = (
+            chunk.get("published_at")
+            if isinstance(chunk.get("published_at"), str)
+            else ""
+        )
         if expected_category and normalized["category"] != expected_category:
             continue
         valid.append(normalized)
@@ -464,6 +504,7 @@ def _result_with_audit(
     citations: list[dict],
     revision: int,
     prompts: dict[str, str],
+    routes: list[dict],
     llm=None,
     responses: list[object] | None = None,
 ) -> dict:
@@ -476,11 +517,27 @@ def _result_with_audit(
         responses=responses or [],
     )
     latest = audited_config["audit"]["llm"]["rag_cite"]["latest"]
+    latest["routing_contract"] = ROUTING_CONTRACT
+    latest["routes"] = [dict(route) for route in routes]
+    for record in audited_config["audit"]["llm"]["rag_cite"]["history"]:
+        if record.get("attempt") == revision + 1:
+            record["routing_contract"] = ROUTING_CONTRACT
+            record["routes"] = [dict(route) for route in routes]
+    route_categories = sorted({route["category"] for route in routes})
+    evidence_roles = sorted({route["evidence_role"] for route in routes})
+    missing_published_at = 0
+    for citation in citations:
+        extra = citation.get("extra")
+        if not isinstance(extra, dict) or not extra.get("published_at"):
+            missing_published_at += 1
     annotate_current_run(
         metadata={
             "rag_attempt": revision + 1,
             "rag_prompt_hash": latest["prompt_hash"]["aggregate_sha256"],
             "rag_verified_citations": len(citations),
+            "rag_route_categories": ",".join(route_categories),
+            "rag_evidence_roles": ",".join(evidence_roles),
+            "rag_missing_published_at": missing_published_at,
             "model_version": latest["model_version"],
         },
         tags=[f"rag-attempt:{revision + 1}"],
@@ -513,6 +570,8 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
         as_of_date,
         ips,
     )
+    routes = _routing_records(explanations, metrics, ips)
+    route_by_topic = {route["topic"]: route for route in routes}
     prompts: dict[str, str] = {}
     responses: list[object] = []
 
@@ -530,6 +589,7 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
                 citations=[],
                 revision=revision,
                 prompts=prompts,
+                routes=routes,
             )
 
     # --- 2) LLM 준비 ---
@@ -546,6 +606,7 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
                 citations=[],
                 revision=revision,
                 prompts=prompts,
+                routes=routes,
             )
 
     # --- 3) topic별 검색 → 후보 생성 → 해당 검색 근거 안에서 검증 ---
@@ -554,7 +615,8 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
     all_verified: list[Citation] = []
     for explanation in explanations:
         topic = str(explanation.get("topic", "")).strip()
-        category = _category_for_topic(topic)
+        route = route_by_topic[topic]
+        category = route["category"]
         query = _build_query(topic, metrics, ips)
         try:
             retrieved_chunks = retrieve_chunks(retriever, query, category=category)
@@ -605,6 +667,9 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
                 **citation_extra,
                 "chunk_text": chunk.get("text", ""),
                 "category": chunk.get("category", ""),
+                "evidence_role": route["evidence_role"],
+                "routing_reason": route["routing_reason"],
+                "published_at": chunk.get("published_at", ""),
             }
         all_verified.extend(verified)
         for rejected_citation in rejected:
@@ -631,6 +696,7 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
         citations=[citation.to_dict() for citation in unique_verified],
         revision=revision,
         prompts=prompts,
+        routes=routes,
         llm=llm,
         responses=responses,
     )

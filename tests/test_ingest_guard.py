@@ -17,6 +17,7 @@ from app.rag.ingest import (
     build_index,
     chunk_text,
     contains_tbd,
+    infer_published_at,
     make_chunk_id,
     partition_documents,
 )
@@ -98,6 +99,12 @@ def test_chunk_id_deterministic_format():
     assert make_chunk_id("a.pdf", 7) == "a.pdf::0007"
 
 
+def test_published_at_is_inferred_deterministically_from_source_name():
+    assert infer_published_at("samsung_equity_202510.pdf") == "2025-10-01"
+    assert infer_published_at("methodology_var_cvar_2026.pdf") == "2026-01-01"
+    assert infer_published_at("undated.pdf") == ""
+
+
 def test_chunk_text_deterministic_and_metadata():
     text = "가나다라" * 700  # CHUNK_SIZE보다 충분히 긴 텍스트
     c1 = chunk_text(text, source="x.pdf", category="macro")
@@ -108,10 +115,22 @@ def test_chunk_text_deterministic_and_metadata():
     assert first["chunk_id"] == "x.pdf::0000"
     assert first["source"] == "x.pdf"
     assert first["category"] == "macro"
+    assert first["published_at"] == ""
     assert first["char_start"] == 0
     assert first["char_end"] == CHUNK_SIZE
     # 중첩 검증: 다음 청크 시작 = CHUNK_SIZE - CHUNK_OVERLAP
     assert c1[1]["char_start"] == CHUNK_SIZE - CHUNK_OVERLAP
+
+
+def test_chunk_text_keeps_explicit_published_at():
+    chunks = chunk_text(
+        "발행일 메타데이터 테스트",
+        source="macro_202605.pdf",
+        category="macro",
+        published_at="2026-05-29",
+    )
+
+    assert chunks[0]["published_at"] == "2026-05-29"
 
 
 def test_chunk_text_roundtrip_substring():
