@@ -14,6 +14,5 @@ var_lookback_days: 1250
 # Yahoo Finance 재배포 제약으로 git 미커밋, 발표 전 1회 실행으로 예열),
 # "dummy"=고정 수식 더미(네트워크 불요, 오프라인 개발/테스트용).
 data_source: real
-# 개발 기본값은 인용 0건을 수동 검토 대상으로 허용한다.
-# 제출·시연에서는 true로 전환해 검증 통과 인용이 없으면 judge를 실패시킨다.
-strict_citation_gate: false
+# 제출·시연에서는 검증 통과 인용이 없으면 judge를 반드시 실패시킨다.
+strict_citation_gate: true

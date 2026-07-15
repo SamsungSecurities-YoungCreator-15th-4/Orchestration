@@ -16,6 +16,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 THREAD_ID = "demo-thread-001"
+DEPLOYMENT_VALIDATION_RAW_INPUT = (
+    "고객은 사업체 운영자금과 은퇴자금을 함께 관리하고 있으며 투자기간은 10년이다. "
+    "목표수익률은 연 5%이고 중간 수준의 유동성을 원한다. 금융소득 종합과세와 "
+    "이자·배당소득의 세후 유동성 영향을 확인하고, 고금리·강달러 충격에서 "
+    "제안 포트폴리오의 하방 위험과 대응 방향을 점검해 달라."
+)
 
 
 def _print_header(title: str) -> None:
@@ -46,6 +52,11 @@ def main() -> None:
                         help="유동성 요구를 과대 설정해 충돌 분기 시연")
     parser.add_argument("--offline", action="store_true",
                         help="외부 API 없이 결정론 IPS·더미 시장데이터로 실행")
+    parser.add_argument(
+        "--validate-deployment",
+        action="store_true",
+        help="4개 RAG category·Judge·LangSmith를 포함한 실제 배포 계약 검증",
+    )
     args = parser.parse_args()
 
     from app.graph import build_graph
@@ -61,6 +72,10 @@ def main() -> None:
             "offline": args.offline,
         }
     }
+    if args.validate_deployment:
+        if args.offline:
+            parser.error("--validate-deployment는 --offline과 함께 사용할 수 없습니다.")
+        initial_state["raw_input"] = DEPLOYMENT_VALIDATION_RAW_INPUT
     invocation = prepare_trace_invocation(config, phase="input")
     initial_state["run_config"] = {"observability": invocation.observability}
     if invocation.trace_id:
@@ -146,6 +161,19 @@ def main() -> None:
     print(json.dumps(final.get("report", {}).get("governance", {}), ensure_ascii=False, indent=2))
     print(f"\n  trace_id: {final.get('trace_id')}")
     print(f"  report title: {final.get('report', {}).get('title')}")
+
+    if args.validate_deployment:
+        from app.deployment_validation import (
+            format_deployment_checks,
+            validate_deployment_state,
+        )
+
+        _print_header("6) 배포 검증")
+        checks = validate_deployment_state(final, order)
+        print(format_deployment_checks(checks))
+        failures = [check.name for check in checks if not check.passed]
+        if failures:
+            raise SystemExit("배포 검증 실패: " + ", ".join(failures))
 
 
 if __name__ == "__main__":
