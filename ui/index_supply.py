@@ -12,7 +12,8 @@ from app.rag.deployment import (
 log = logging.getLogger(__name__)
 
 
-def prepare_index_or_stop(st_module, *, ensure_index=ensure_deployment_index):
+def prepare_index_or_stop(st_module, *, ensure_index=None):
+    index_preparer = ensure_index or ensure_deployment_index
     try:
         try:
             secrets = dict(st_module.secrets)
@@ -20,7 +21,7 @@ def prepare_index_or_stop(st_module, *, ensure_index=ensure_deployment_index):
             secrets = {}
         settings = load_index_supply_settings(secrets)
         with st_module.spinner("RAG 근거 인덱스를 확인하는 중..."):
-            return ensure_index(settings=settings)
+            return index_preparer(settings=settings)
     except Exception as exc:
         # SAS URL·토큰이 UI나 로그에 노출되지 않도록 예외 문자열은 출력하지 않는다.
         log.error("RAG index bootstrap failed: %s", type(exc).__name__)
