@@ -1,4 +1,5 @@
 """LangSmith 연동·감사정보 단위 테스트 — 네트워크와 실제 API key 불필요."""
+
 import json
 import os
 import sys
@@ -9,12 +10,13 @@ from dotenv import dotenv_values
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.llm.audit import prompt_hash_record
+from app.llm.audit import prompt_hash_record, with_llm_audit
 from app.graph import build_graph
 from app.nodes.assemble_report import assemble_report
 from app.nodes.judge_eval import _AuditedLLM, _named_prompts, judge_eval
 from app.nodes.load_inputs import load_inputs
 from app.observability.langsmith import (
+    annotate_current_run,
     langsmith_enabled,
     merge_observability,
     prepare_trace_invocation,
@@ -116,6 +118,47 @@ def test_enabled_invocation_connects_trace_id_and_root_run(monkeypatch):
     )
 
 
+def test_enabled_invocation_ignores_malformed_metadata_and_tags(monkeypatch):
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+    monkeypatch.setenv("LANGSMITH_ENDPOINT", "https://apac.api.smith.langchain.com")
+    monkeypatch.setenv("LANGSMITH_API_KEY", "test-only-key")
+    monkeypatch.setenv("LANGSMITH_PROJECT", "Orchestration_Team4")
+    monkeypatch.setattr(
+        "app.observability.langsmith._get_run_url",
+        lambda *_args, **_kwargs: "https://smith.example/trace/1234",
+    )
+
+    invocation = prepare_trace_invocation(
+        {"metadata": "invalid", "tags": ["kept", 1, None]},
+        phase="analysis",
+        trace_id="run-domain-trace",
+    )
+
+    assert invocation.config["metadata"] == {
+        "trace_id": "run-domain-trace",
+        "graph_phase": "analysis",
+    }
+    assert invocation.config["tags"] == ["kept", "risk-report", "phase:analysis"]
+
+
+def test_run_annotation_failure_does_not_break_execution(monkeypatch, caplog):
+    class BrokenRun:
+        def add_metadata(self, metadata):
+            raise RuntimeError("simulated SDK failure")
+
+        def add_tags(self, tags):
+            raise AssertionError("metadata failure should stop annotation")
+
+    monkeypatch.setattr(
+        "langsmith.run_helpers.get_current_run_tree",
+        lambda: BrokenRun(),
+    )
+
+    annotate_current_run(metadata={"judge_retries": 1}, tags=["judge:failed"])
+
+    assert "LangSmith run 어노테이션 실패" in caplog.text
+
+
 def test_env_example_is_opt_in_and_masks_financial_payloads():
     values = dotenv_values(Path(__file__).resolve().parents[1] / ".env.example")
 
@@ -177,6 +220,26 @@ def test_prompt_hash_is_deterministic_and_sensitive():
 
     assert first == second
     assert first["aggregate_sha256"] != changed["aggregate_sha256"]
+
+
+def test_llm_audit_replaces_malformed_nested_history():
+    updated = with_llm_audit(
+        {
+            "audit": {
+                "llm": {
+                    "rag_cite": {
+                        "history": "invalid",
+                    }
+                }
+            }
+        },
+        component="rag_cite",
+        attempt=1,
+        prompts={"VaR": "prompt"},
+    )
+
+    history = updated["audit"]["llm"]["rag_cite"]["history"]
+    assert [record["attempt"] for record in history] == [1]
 
 
 def test_audited_llm_delegates_runnable_arguments_and_attributes():
@@ -258,7 +321,9 @@ def test_judge_failure_adds_trace_metadata_and_report_audit(monkeypatch):
         "hide_inputs": True,
         "hide_outputs": True,
     }
-    assert report["governance"]["model_versions"]["judge_eval"]["model"] == "gpt-4o-test"
+    assert (
+        report["governance"]["model_versions"]["judge_eval"]["model"] == "gpt-4o-test"
+    )
     assert report["governance"]["prompt_hashes"]["judge_eval"]
     assert report["reproducibility"]["computation_hash"] == "metric-hash"
 

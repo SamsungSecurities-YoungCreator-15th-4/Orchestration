@@ -2,6 +2,7 @@
 
 핵심 검증: 환각 인용이 state의 citations에 기록될 경로가 없어야 한다.
 """
+
 import json
 import sys
 from pathlib import Path
@@ -10,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.nodes.judge_eval import judge_eval
 from app.nodes.rag_cite import _build_query, _evidence_rows, parse_candidates, rag_cite
+from app.rag.citations import Citation
 from app.rag.citations import verify_citations
 from app.rag.ingest import CHUNK_SIZE
 
@@ -87,13 +89,17 @@ def test_only_verified_citations_recorded():
     assert all(citation["quote"] == REAL_SENTENCE for citation in citations)
     assert all(citation["verified"] is True for citation in citations)
     assert all(citation["chunk_id"] == "doc_b.pdf::0003" for citation in citations)
-    assert all(citation["extra"]["chunk_text"] == REAL_SENTENCE for citation in citations)
+    assert all(
+        citation["extra"]["chunk_text"] == REAL_SENTENCE for citation in citations
+    )
     assert {citation["claim"] for citation in citations} == {
         "VaR 해석",
         "스트레스 시나리오",
         "기준일 및 유의사항",
     }
-    disclaimer = next(e for e in out["explanations"] if e["topic"] == "기준일 및 유의사항")
+    disclaimer = next(
+        e for e in out["explanations"] if e["topic"] == "기준일 및 유의사항"
+    )
     assert "2026-07-03" in disclaimer["text"]
     assert "보장하지 않습니다" in disclaimer["text"]
     rag_audit = out["run_config"]["audit"]["llm"]["rag_cite"]["latest"]
@@ -152,7 +158,9 @@ def test_parse_candidates_garbage_safe():
     chunks = [{"chunk_id": "a.pdf::0000", "source": "a.pdf", "text": "본문"}]
     assert parse_candidates("JSON 아님", chunks) == []
     assert parse_candidates('[{"quote": "", "chunk_id": "a.pdf::0000"}]', chunks) == []
-    got = parse_candidates('앞말 [{"quote": "본문", "chunk_id": "a.pdf::0000"}] 뒷말', chunks)
+    got = parse_candidates(
+        '앞말 [{"quote": "본문", "chunk_id": "a.pdf::0000"}] 뒷말', chunks
+    )
     assert len(got) == 1 and got[0].source == "a.pdf"
 
 
@@ -204,7 +212,11 @@ def test_evidence_rows_ignore_malformed_chunks():
         {},
         {"chunk_id": "none-text.pdf::0001", "text": None},
         {"chunk_id": "", "text": "빈 ID"},
-        {"chunk_id": "valid.pdf::0001", "source": None, "text": "첫 줄입니다.\n\n둘째 줄입니다."},
+        {
+            "chunk_id": "valid.pdf::0001",
+            "source": None,
+            "text": "첫 줄입니다.\n\n둘째 줄입니다.",
+        },
     ]
 
     assert _evidence_rows(chunks) == [
@@ -343,6 +355,47 @@ def test_none_retriever_result_falls_back():
     assert out["citations"] == []
 
 
+def test_malformed_chunks_and_candidate_extra_do_not_break_rag(monkeypatch):
+    valid_chunk = {
+        "chunk_id": "valid.pdf::0001",
+        "source": "valid.pdf",
+        "category": "methodology",
+        "text": REAL_SENTENCE,
+    }
+
+    monkeypatch.setattr(
+        "app.rag.retriever.retrieve_chunks",
+        lambda _retriever, _query: [
+            None,
+            {"chunk_id": "bad", "text": None},
+            valid_chunk,
+        ],
+    )
+    monkeypatch.setattr(
+        "app.nodes.rag_cite.parse_candidates",
+        lambda _raw, _chunks: [
+            Citation(
+                quote=REAL_SENTENCE,
+                source="valid.pdf",
+                chunk_id="valid.pdf::0001",
+                claim="LLM claim",
+                extra=None,
+            )
+        ],
+    )
+
+    out = rag_cite({"metrics": {}}, llm=_FakeLLM(), retriever=object())
+
+    assert len(out["citations"]) == 3
+    assert all(
+        citation["extra"]["chunk_text"] == REAL_SENTENCE
+        for citation in out["citations"]
+    )
+    assert all(
+        citation["extra"]["category"] == "methodology" for citation in out["citations"]
+    )
+
+
 VAR_SENTENCE = "VaR은 99% 신뢰수준과 1일 보유기간을 기준으로 산출한다."
 DISCLAIMER_SENTENCE = "과거 데이터 기반 추정치는 실제 결과와 다를 수 있다."
 
@@ -406,7 +459,14 @@ class _TopicLLM:
             chunk_id = "methodology_var_cvar_2026.pdf::0009"
             source = "methodology_var_cvar_2026.pdf"
         return json.dumps(
-            [{"claim": "LLM 자유 형식 주장", "quote": quote, "chunk_id": chunk_id, "source": source}],
+            [
+                {
+                    "claim": "LLM 자유 형식 주장",
+                    "quote": quote,
+                    "chunk_id": chunk_id,
+                    "source": source,
+                }
+            ],
             ensure_ascii=False,
         )
 
@@ -437,4 +497,6 @@ def test_topic_queries_retrieve_and_verify_independently():
     by_topic = {citation["claim"]: citation for citation in out["citations"]}
     assert by_topic["VaR 해석"]["source"] == "methodology_var_cvar_2026.pdf"
     assert by_topic["스트레스 시나리오"]["source"] == "methodology_stress_2026.pdf"
-    assert all(citation["extra"]["category"] == "methodology" for citation in out["citations"])
+    assert all(
+        citation["extra"]["category"] == "methodology" for citation in out["citations"]
+    )
