@@ -29,6 +29,11 @@ from app.state import (
     FIXED_RISK,
     IPSProfile,
 )
+from ui.rag_evidence import (
+    RAG_EVIDENCE_SECTIONS,
+    citation_table_rows,
+    group_verified_citations,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
@@ -511,25 +516,15 @@ else:
         e1.metric("검증 통과 인용", f"{evidence.get('verified_citation_count', 0)}건")
         e2.metric("전체 인용", f"{evidence.get('citation_count', 0)}건")
 
-        verified_citations = [
-            c for c in (report.get("citations") or [])
-            if isinstance(c, dict) and c.get("verified") is True
-        ]
-        if verified_citations:
-            st.table(
-                [
-                    {
-                        "주장": c.get("claim") or "-",
-                        "근거 문장": c.get("quote") or "-",
-                        "출처": (
-                            c.get("source").strip().rsplit("/", 1)[-1]
-                            if c.get("source")
-                            else "-"
-                        ),
-                    }
-                    for c in verified_citations
-                ]
-            )
+        grouped_citations = group_verified_citations(report.get("citations") or [])
+        for section in RAG_EVIDENCE_SECTIONS:
+            category = section["category"]
+            section_citations = grouped_citations[category]
+            st.markdown(f"#### {section['title']}")
+            if section_citations:
+                st.table(citation_table_rows(section_citations))
+            else:
+                st.caption("해당 역할로 검증된 인용이 없습니다.")
 
     with st.container(border=True):
         section_title("품질 검증")
