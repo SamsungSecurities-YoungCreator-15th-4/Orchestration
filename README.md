@@ -23,7 +23,10 @@
 `rag_cite → judge_eval → assemble_report`
 
 - `var_engine`은 Historical VaR·CVaR, 신뢰구간과 3개 스트레스 시나리오를 계산한다.
-- `rag_cite`는 로컬 Chroma에서 topic별 근거를 검색하고 원문 부분문자열만 인용한다.
+- `rag_cite`는 상태를 기준으로 corpus category를 자동 라우팅하고 Chroma metadata
+  filter를 적용한 뒤 원문 부분문자열만 인용한다. `methodology`와 `macro`는 항상,
+  `house_view`는 CVaR 기여 상위 자산군이 있을 때, `tax`는 IPS에 실질 세무 이슈가
+  있을 때만 검색한다. 시장·세무 문서는 정량 계산 입력이 아니라 해석 참고로 사용한다.
 - `judge_eval`은 6축 루브릭으로 설명·인용을 검사하며 최대 2회 시도 후 수동검토로 전환한다.
 - LangSmith는 APAC 프로젝트에서 HITL 전후 trace와 감사정보를 기록한다. 기본 설정은
   입력·출력을 숨겨 상담정보를 외부 trace에 남기지 않는다.

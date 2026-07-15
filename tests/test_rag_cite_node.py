@@ -10,10 +10,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.nodes.judge_eval import judge_eval
-from app.nodes.rag_cite import _build_query, _evidence_rows, parse_candidates, rag_cite
+from app.nodes.rag_cite import (
+    _build_query,
+    _evidence_rows,
+    _tax_issue_terms,
+    _top_cvar_asset,
+    parse_candidates,
+    rag_cite,
+)
 from app.rag.citations import Citation
 from app.rag.citations import verify_citations
 from app.rag.ingest import CHUNK_SIZE
+from app.rag.retriever import retrieve_chunks
 
 REAL_SENTENCE = "스트레스 테스트는 역사적 VaR가 포착하지 못하는 꼬리 위험을 보완한다."
 
@@ -27,14 +35,19 @@ class _FakeDoc:
 class _FakeRetriever:
     """LangChain retriever 인터페이스(invoke)만 흉내내는 순수 파이썬 fake."""
 
-    def invoke(self, query: str):
+    def __init__(self):
+        self.categories: list[str | None] = []
+
+    def invoke(self, query: str, **kwargs):
+        category = (kwargs.get("filter") or {}).get("category")
+        self.categories.append(category)
         return [
             _FakeDoc(
                 REAL_SENTENCE,
                 {
                     "chunk_id": "doc_b.pdf::0003",
                     "source": "doc_b.pdf",
-                    "category": "house_view",
+                    "category": category or "methodology",
                     "char_start": 0,
                     "char_end": len(REAL_SENTENCE),
                 },
@@ -68,6 +81,50 @@ class _FakeLLM:
         )
 
 
+class _SearchKwargsRetriever:
+    """실제 VectorStoreRetriever의 search_kwargs 계약을 흉내내는 fake."""
+
+    def __init__(self):
+        self.search_kwargs = {"k": 4}
+        self.calls: list[dict] = []
+
+    def invoke(self, query: str, **kwargs):
+        self.calls.append(
+            {
+                "query": query,
+                "search_kwargs": dict(self.search_kwargs),
+                "invoke_kwargs": dict(kwargs),
+            }
+        )
+        category = (self.search_kwargs.get("filter") or {}).get("category")
+        return [
+            _FakeDoc(
+                REAL_SENTENCE,
+                {
+                    "chunk_id": "macro.pdf::0001",
+                    "source": "macro.pdf",
+                    "category": category,
+                },
+            )
+        ]
+
+
+def test_retrieve_chunks_copies_search_kwargs_retriever_before_filtering():
+    retriever = _SearchKwargsRetriever()
+
+    chunks = retrieve_chunks(retriever, "고금리 강달러", category="macro")
+
+    assert retriever.search_kwargs == {"k": 4}
+    assert retriever.calls == [
+        {
+            "query": "고금리 강달러",
+            "search_kwargs": {"k": 4, "filter": {"category": "macro"}},
+            "invoke_kwargs": {},
+        }
+    ]
+    assert chunks[0]["category"] == "macro"
+
+
 class _PassingJudgeLLM:
     def invoke(self, prompt: str):
         return json.dumps(
@@ -85,7 +142,7 @@ def test_only_verified_citations_recorded():
     out = rag_cite(state, llm=_FakeLLM(), retriever=_FakeRetriever())
 
     citations = out["citations"]
-    assert len(citations) == 3  # topic 3개 각각에서 환각 후보는 제거됨
+    assert len(citations) == 4  # 활성화된 topic 각각에서 환각 후보는 제거됨
     assert all(citation["quote"] == REAL_SENTENCE for citation in citations)
     assert all(citation["verified"] is True for citation in citations)
     assert all(citation["chunk_id"] == "doc_b.pdf::0003" for citation in citations)
@@ -96,6 +153,7 @@ def test_only_verified_citations_recorded():
         "VaR 해석",
         "스트레스 시나리오",
         "기준일 및 유의사항",
+        "거시환경·스트레스 개연성",
     }
     disclaimer = next(
         e for e in out["explanations"] if e["topic"] == "기준일 및 유의사항"
@@ -108,6 +166,7 @@ def test_only_verified_citations_recorded():
         "VaR 해석",
         "스트레스 시나리오",
         "기준일 및 유의사항",
+        "거시환경·스트레스 개연성",
     }
     assert rag_audit["model_version"]["deployment"] == "test-deployment"
 
@@ -141,7 +200,7 @@ def test_rerun_overwrites_not_accumulates():
     out1 = rag_cite(state, llm=_FakeLLM(), retriever=_FakeRetriever())
     out2 = rag_cite(state, llm=_FakeLLM(), retriever=_FakeRetriever())
     # 재실행해도 누적되지 않고 같은 크기로 덮어쓴다
-    assert len(out1["citations"]) == len(out2["citations"]) == 4
+    assert len(out1["citations"]) == len(out2["citations"]) == 5
     # judge 피드백이 설명에 반영된다
     assert any(e["topic"] == "재작성 반영" for e in out1["explanations"])
     assert all(e["revision"] == 2 for e in out1["explanations"])
@@ -365,7 +424,7 @@ def test_malformed_chunks_and_candidate_extra_do_not_break_rag(monkeypatch):
 
     monkeypatch.setattr(
         "app.rag.retriever.retrieve_chunks",
-        lambda _retriever, _query: [
+        lambda _retriever, _query, *, category=None: [
             None,
             {"chunk_id": "bad", "text": None},
             valid_chunk,
@@ -394,18 +453,38 @@ def test_malformed_chunks_and_candidate_extra_do_not_break_rag(monkeypatch):
     assert all(
         citation["extra"]["category"] == "methodology" for citation in out["citations"]
     )
+    assert {citation["claim"] for citation in out["citations"]} == {
+        "VaR 해석",
+        "스트레스 시나리오",
+        "기준일 및 유의사항",
+    }
 
 
 VAR_SENTENCE = "VaR은 99% 신뢰수준과 1일 보유기간을 기준으로 산출한다."
 DISCLAIMER_SENTENCE = "과거 데이터 기반 추정치는 실제 결과와 다를 수 있다."
+MACRO_SENTENCE = "고금리와 강달러는 위험자산 가격의 하방 압력을 높일 수 있다."
 
 
 class _TopicRetriever:
     def __init__(self):
         self.queries: list[str] = []
+        self.categories: list[str | None] = []
 
-    def invoke(self, query: str):
+    def invoke(self, query: str, **kwargs):
         self.queries.append(query)
+        category = (kwargs.get("filter") or {}).get("category")
+        self.categories.append(category)
+        if category == "macro":
+            return [
+                _FakeDoc(
+                    MACRO_SENTENCE,
+                    {
+                        "chunk_id": "macro_outlook_2026.pdf::0002",
+                        "source": "macro_outlook_2026.pdf",
+                        "category": "macro",
+                    },
+                )
+            ]
         if "스트레스 테스트" in query:
             return [
                 _FakeDoc(
@@ -446,7 +525,11 @@ class _TopicLLM:
 
     def invoke(self, prompt: str):
         self.prompts.append(prompt)
-        if "methodology_stress_2026.pdf::0004" in prompt:
+        if "macro_outlook_2026.pdf::0002" in prompt:
+            quote = MACRO_SENTENCE
+            chunk_id = "macro_outlook_2026.pdf::0002"
+            source = "macro_outlook_2026.pdf"
+        elif "methodology_stress_2026.pdf::0004" in prompt:
             quote = REAL_SENTENCE
             chunk_id = "methodology_stress_2026.pdf::0004"
             source = "methodology_stress_2026.pdf"
@@ -483,20 +566,103 @@ def test_topic_queries_retrieve_and_verify_independently():
 
     out = rag_cite({"metrics": metrics}, llm=llm, retriever=retriever)
 
-    assert len(retriever.queries) == 3
+    assert len(retriever.queries) == 4
     assert retriever.queries == [
         _build_query("VaR 해석", metrics),
         _build_query("스트레스 시나리오", metrics),
         _build_query("기준일 및 유의사항", metrics),
+        _build_query("거시환경·스트레스 개연성", metrics),
     ]
-    assert len(set(retriever.queries)) == 3
-    assert len(llm.prompts) == 3
+    assert retriever.categories == [
+        "methodology",
+        "methodology",
+        "methodology",
+        "macro",
+    ]
+    assert len(set(retriever.queries)) == 4
+    assert len(llm.prompts) == 4
     assert "methodology_stress_2026.pdf::0004" not in llm.prompts[0]
     assert "methodology_var_cvar_2026.pdf::0003" not in llm.prompts[1]
 
     by_topic = {citation["claim"]: citation for citation in out["citations"]}
     assert by_topic["VaR 해석"]["source"] == "methodology_var_cvar_2026.pdf"
     assert by_topic["스트레스 시나리오"]["source"] == "methodology_stress_2026.pdf"
-    assert all(
-        citation["extra"]["category"] == "methodology" for citation in out["citations"]
+    assert by_topic["거시환경·스트레스 개연성"]["source"] == "macro_outlook_2026.pdf"
+    assert {citation["extra"]["category"] for citation in out["citations"]} == {
+        "methodology",
+        "macro",
+    }
+
+
+def test_category_routing_adds_house_view_and_tax_only_when_state_requires_them():
+    metrics = {
+        "drilldown": {
+            "tail_contribution_krw": {
+                "global_equity": 150_000_000,
+                "domestic_equity": 200_000_000,
+            }
+        }
+    }
+    retriever = _FakeRetriever()
+
+    out = rag_cite(
+        {
+            "metrics": metrics,
+            "ips": {"Tax": "금융소득종합과세 대상 여부 확인 필요"},
+        },
+        llm=_FakeLLM(),
+        retriever=retriever,
     )
+
+    assert retriever.categories == [
+        "methodology",
+        "methodology",
+        "methodology",
+        "macro",
+        "house_view",
+        "tax",
+    ]
+    assert {citation["extra"]["category"] for citation in out["citations"]} == {
+        "methodology",
+        "macro",
+        "house_view",
+        "tax",
+    }
+    assert _top_cvar_asset(metrics) == "domestic_equity"
+    assert _tax_issue_terms({"Tax": "금융소득종합과세 대상 여부 확인 필요"}) == (
+        "금융소득",
+        "종합과세",
+    )
+
+
+def test_category_routing_skips_house_view_without_positive_cvar_and_tax_without_issue():
+    metrics = {
+        "drilldown": {
+            "tail_contribution_krw": {
+                "global_equity": 0,
+                "domestic_equity": -1,
+            }
+        }
+    }
+    retriever = _FakeRetriever()
+
+    out = rag_cite(
+        {"metrics": metrics, "ips": {"Tax": "해당 사항 없음"}},
+        llm=_FakeLLM(),
+        retriever=retriever,
+    )
+
+    assert retriever.categories == [
+        "methodology",
+        "methodology",
+        "methodology",
+        "macro",
+    ]
+    assert _top_cvar_asset(metrics) is None
+    assert _tax_issue_terms({"Tax": "해당 사항 없음"}) == ()
+    assert {explanation["topic"] for explanation in out["explanations"]} == {
+        "VaR 해석",
+        "스트레스 시나리오",
+        "기준일 및 유의사항",
+        "거시환경·스트레스 개연성",
+    }

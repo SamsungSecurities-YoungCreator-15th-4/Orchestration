@@ -32,6 +32,52 @@ log = logging.getLogger(__name__)
 
 MAX_CANDIDATES = 8  # LLM 인용 후보 상한 (프롬프트 지시용)
 MAX_EVIDENCE_QUOTE_CHARS = 220  # UI 한 행에서 읽을 수 있는 근거 문장 상한
+TOPIC_CATEGORIES = {
+    "VaR 해석": "methodology",
+    "스트레스 시나리오": "methodology",
+    "기준일 및 유의사항": "methodology",
+    "거시환경·스트레스 개연성": "macro",
+    "자산시장 참고": "house_view",
+    "세무 참고": "tax",
+    "재작성 반영": "methodology",
+}
+ASSET_LABELS = {
+    "domestic_equity": "국내주식",
+    "global_equity": "해외주식",
+    "domestic_bond": "국내채권",
+    "global_bond": "해외채권",
+    "alternatives": "대체투자",
+    "cash": "현금성자산",
+}
+TAX_KEYWORDS = (
+    "금융소득",
+    "종합과세",
+    "종합소득",
+    "양도소득",
+    "배당소득",
+    "이자소득",
+    "상속",
+    "증여",
+    "절세",
+    "과세",
+    "세무",
+    "세금",
+    "법인",
+)
+NO_TAX_ISSUE_VALUES = frozenset(
+    {
+        "",
+        "-",
+        "없음",
+        "없습니다",
+        "해당없음",
+        "해당사항없음",
+        "특이사항없음",
+        "확인필요",
+        "미정",
+        "모름",
+    }
+)
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。])\s+")
 _SENTENCE_END_RE = re.compile(r"[.!?。][\"'”’)]*$")
 _UNREADABLE_HANGUL_RUN_RE = re.compile(r"[가-힣]{16,}")
@@ -41,7 +87,48 @@ _SECTION_HEADING_LINE_RE = re.compile(r"^\d+(?:\.\d+)*\.\s+[^.!?。]{1,80}$")
 # ---------------------------------------------------------------------------
 # 순수 헬퍼 (결정론)
 # ---------------------------------------------------------------------------
-def _build_query(topic: str, metrics: dict) -> str:
+def _top_cvar_asset(metrics: dict) -> str | None:
+    """CVaR 원화 기여도가 가장 큰 자산군을 결정론적으로 고른다."""
+    raw = (metrics.get("drilldown") or {}).get("tail_contribution_krw") or {}
+    if not isinstance(raw, dict):
+        return None
+    candidates = [
+        (str(asset_class), float(value))
+        for asset_class, value in raw.items()
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+    ]
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: (-item[1], item[0]))[0]
+
+
+def _tax_issue_terms(ips: dict) -> tuple[str, ...]:
+    """개인 원문을 질의에 복사하지 않고 실질 세무 키워드만 추린다."""
+    raw_tax = ips.get("Tax") if isinstance(ips, dict) else None
+    if not isinstance(raw_tax, str):
+        return ()
+    normalized = re.sub(r"\s+", "", raw_tax).strip().lower()
+    if normalized in NO_TAX_ISSUE_VALUES or any(
+        marker in normalized
+        for marker in ("해당사항없", "특이사항없", "세무이슈없", "세금이슈없")
+    ):
+        return ()
+    terms: list[str] = []
+    for keyword in TAX_KEYWORDS:
+        if keyword.lower() not in normalized:
+            continue
+        if any(keyword in selected for selected in terms):
+            continue
+        terms.append(keyword)
+    return tuple(terms)
+
+
+def _category_for_topic(topic: str) -> str:
+    """설명 topic을 합의된 단일 corpus category로 라우팅한다."""
+    return TOPIC_CATEGORIES.get(topic, "methodology")
+
+
+def _build_query(topic: str, metrics: dict, ips: dict | None = None) -> str:
     """설명 topic과 metrics에서 결정론적인 전용 검색 질의를 만든다."""
     if topic == "VaR 해석":
         parts = [
@@ -75,6 +162,27 @@ def _build_query(topic: str, metrics: dict) -> str:
             "과거 데이터 통계적 추정치 실제 결과 차이 과도한 정밀 확률 표현"
         )
 
+    if topic == "거시환경·스트레스 개연성":
+        return (
+            "고금리 강달러 정책금리 환율 위험자산 가격 하방 압력 / "
+            "스트레스 시나리오 거시환경 개연성 해석 참고"
+        )
+
+    if topic == "자산시장 참고":
+        asset_class = _top_cvar_asset(metrics)
+        asset_label = ASSET_LABELS.get(asset_class or "", asset_class or "자산군")
+        return (
+            f"{asset_label} {asset_class or ''} 시장 전망 변동성 하방 위험 / "
+            "CVaR 기여도 상위 자산군 해석 참고"
+        )
+
+    if topic == "세무 참고":
+        terms = " ".join(_tax_issue_terms(ips or {}))
+        return (
+            f"자영업자 포트폴리오 {terms} 세후 유동성 투자구조 / "
+            "IPS 세무 이슈 해석 참고"
+        )
+
     return f"리스크 방법론 근거 재검증 / {topic}"
 
 
@@ -83,6 +191,7 @@ def _build_explanations(
     revision: int,
     judge_feedback: str,
     as_of_date: str | None,
+    ips: dict | None = None,
 ) -> list[dict]:
     """결정론적 설명 문단 생성 (metrics 기반, LLM 미사용)."""
     reference_date = as_of_date or "미지정"
@@ -114,6 +223,43 @@ def _build_explanations(
             "revision": revision,
         },
     ]
+    explanations.append(
+        {
+            "topic": "거시환경·스트레스 개연성",
+            "text": (
+                "고금리·강달러 충격은 금리·환율·위험자산 가격 경로를 함께 "
+                "점검해야 하는 거시 시나리오이며, 정량 결과의 해석 참고자료로 사용한다."
+            ),
+            "revision": revision,
+        }
+    )
+
+    top_asset = _top_cvar_asset(metrics)
+    if top_asset:
+        asset_label = ASSET_LABELS.get(top_asset, top_asset)
+        explanations.append(
+            {
+                "topic": "자산시장 참고",
+                "text": (
+                    f"CVaR 기여도가 가장 큰 {asset_label} 관련 시장 전망은 "
+                    "포트폴리오 집중위험을 해석하는 참고자료로만 사용한다."
+                ),
+                "revision": revision,
+            }
+        )
+
+    tax_terms = _tax_issue_terms(ips or {})
+    if tax_terms:
+        explanations.append(
+            {
+                "topic": "세무 참고",
+                "text": (
+                    f"IPS에서 확인된 세무 이슈({', '.join(tax_terms)})는 세후 "
+                    "유동성과 투자구조를 해석하는 참고자료로만 사용한다."
+                ),
+                "revision": revision,
+            }
+        )
     if judge_feedback:
         explanations.append(
             {
@@ -195,8 +341,12 @@ def _evidence_rows(chunks: list[dict]) -> list[dict]:
     return rows
 
 
-def _valid_chunks(chunks: list[dict]) -> list[dict]:
-    """검색 계약을 만족하는 청크만 남기고 문자열 metadata를 정규화한다."""
+def _valid_chunks(
+    chunks: list[dict],
+    *,
+    expected_category: str | None = None,
+) -> list[dict]:
+    """검색 계약과 route category를 만족하는 청크만 남긴다."""
     valid: list[dict] = []
     for chunk in chunks:
         if not isinstance(chunk, dict):
@@ -214,6 +364,8 @@ def _valid_chunks(chunks: list[dict]) -> list[dict]:
         normalized["category"] = (
             chunk.get("category") if isinstance(chunk.get("category"), str) else ""
         )
+        if expected_category and normalized["category"] != expected_category:
+            continue
         valid.append(normalized)
     return valid
 
@@ -349,11 +501,18 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
     run_config = state.get("run_config") or {}
     revision = state.get("judge_retries", 0)  # judge 루프 재작성 횟수
     judge_feedback = state.get("judge_feedback") or ""
+    ips = state.get("ips") or {}
     meta = metrics.get("meta") or {}
     data_period = meta.get("data_period") or {}
     as_of_date = data_period.get("end") or run_config.get("as_of_date")
 
-    explanations = _build_explanations(metrics, revision, judge_feedback, as_of_date)
+    explanations = _build_explanations(
+        metrics,
+        revision,
+        judge_feedback,
+        as_of_date,
+        ips,
+    )
     prompts: dict[str, str] = {}
     responses: list[object] = []
 
@@ -395,13 +554,14 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
     all_verified: list[Citation] = []
     for explanation in explanations:
         topic = str(explanation.get("topic", "")).strip()
-        query = _build_query(topic, metrics)
+        category = _category_for_topic(topic)
+        query = _build_query(topic, metrics, ips)
         try:
-            retrieved_chunks = retrieve_chunks(retriever, query)
+            retrieved_chunks = retrieve_chunks(retriever, query, category=category)
         except Exception as e:
             log.warning("topic=%s RAG 검색 중 오류 — 해당 topic 건너뜀: %s", topic, e)
             continue
-        chunks = _valid_chunks(retrieved_chunks)
+        chunks = _valid_chunks(retrieved_chunks, expected_category=category)
         if len(chunks) != len(retrieved_chunks):
             log.warning(
                 "topic=%s 검색 결과에서 계약 위반 청크 %d건 제외",
