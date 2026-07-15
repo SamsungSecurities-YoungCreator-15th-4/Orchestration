@@ -63,6 +63,7 @@ def test_streamlit_release_contract_requires_safe_template_and_pinned_dependenci
     }
     values.update(
         {
+            "AZURE_OPENAI_API_KEY": "''",
             "RAG_INDEX_REQUIRED": "true",
             "LANGSMITH_TRACING": "true",
             "LANGSMITH_HIDE_INPUTS": "true",
@@ -83,6 +84,36 @@ def test_streamlit_release_contract_requires_safe_template_and_pinned_dependenci
     )
 
     assert all(result.status == "PASS" for result in streamlit_release_checks(tmp_path))
+
+
+def test_streamlit_release_contract_reports_missing_key_without_false_secret_alert(
+    tmp_path: Path,
+):
+    streamlit_dir = tmp_path / ".streamlit"
+    streamlit_dir.mkdir()
+    values = {
+        key: '""'
+        for key in STREAMLIT_SECRET_KEYS - {"AZURE_OPENAI_API_KEY"}
+    }
+    (streamlit_dir / "secrets.toml.example").write_text(
+        "\n".join(f"{key} = {value}" for key, value in sorted(values.items())),
+        encoding="utf-8",
+    )
+    (tmp_path / "requirements.txt").write_text(
+        "streamlit==1.52.1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".gitignore").write_text(
+        ".streamlit/secrets.toml\n",
+        encoding="utf-8",
+    )
+
+    by_name = {
+        result.name: result for result in streamlit_release_checks(tmp_path)
+    }
+
+    assert by_name["Streamlit secret key contract"].status == "FAIL"
+    assert by_name["Streamlit secret placeholders"].status == "PASS"
 
 
 def test_streamlit_release_contract_fails_on_secret_or_unpinned_dependency(

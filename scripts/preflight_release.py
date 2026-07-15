@@ -117,7 +117,9 @@ def streamlit_release_checks(root: Path = ROOT) -> list[CheckResult]:
         secret_detail = f"누락={missing_keys}, 초과={extra_keys}"
 
     filled_sensitive = sorted(
-        key for key in STREAMLIT_SENSITIVE_KEYS if template.get(key) != '""'
+        key
+        for key in STREAMLIT_SENSITIVE_KEYS
+        if template.get(key) not in (None, '""', "''")
     )
     requirements_path = root / "requirements.txt"
     requirements = (
