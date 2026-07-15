@@ -12,10 +12,12 @@ from __future__ import annotations
 import json
 import os
 import re
+from datetime import date
 
 from app.judge.rubric import AXIS_NAMES, evaluate_rubric
 from app.llm.audit import with_llm_audit
 from app.observability.langsmith import annotate_current_run
+from app.rag.contracts import EVIDENCE_ROLES, ROUTING_CONTRACT
 from app.state import RiskState
 
 FORCE_FAIL_ENV = "RISK_FORCE_JUDGE_FAIL"
@@ -83,6 +85,109 @@ def _invalid_citations(citations: list) -> list[dict]:
     return [citation for citation in citations if not _is_verified_citation(citation)]
 
 
+def _rag_routing_record(run_config: dict) -> dict | None:
+    """현재 RAG 감사 계약이 활성화된 경우 latest record를 반환한다."""
+    audit = run_config.get("audit") if isinstance(run_config, dict) else None
+    llm_audit = audit.get("llm") if isinstance(audit, dict) else None
+    rag_audit = llm_audit.get("rag_cite") if isinstance(llm_audit, dict) else None
+    latest = rag_audit.get("latest") if isinstance(rag_audit, dict) else None
+    if (
+        isinstance(latest, dict)
+        and latest.get("routing_contract") == ROUTING_CONTRACT
+    ):
+        return latest
+    return None
+
+
+def _citation_routing_check(citations: list[dict], latest: dict) -> dict:
+    """인용의 역할·라우팅 사유가 해당 실행의 route 감사기록과 일치하는지 검사한다."""
+    raw_routes = latest.get("routes")
+    routes = raw_routes if isinstance(raw_routes, list) else []
+    route_by_key = {
+        (route.get("topic"), route.get("category")): route
+        for route in routes
+        if isinstance(route, dict)
+    }
+    failures: list[str] = []
+    for index, citation in enumerate(citations, 1):
+        extra = citation.get("extra")
+        extra = extra if isinstance(extra, dict) else {}
+        category = extra.get("category")
+        expected_role = EVIDENCE_ROLES.get(category)
+        route = route_by_key.get((citation.get("claim"), category))
+        if expected_role is None:
+            failures.append(f"#{index} category 오류")
+        elif extra.get("evidence_role") != expected_role:
+            failures.append(f"#{index} evidence_role 불일치")
+        if route is None:
+            failures.append(f"#{index} 활성 route 없음")
+        elif extra.get("routing_reason") != route.get("routing_reason"):
+            failures.append(f"#{index} routing_reason 불일치")
+    return {
+        "name": "citation_routing_contract",
+        "passed": not failures,
+        "required": True,
+        "detail": (
+            f"인용 {len(citations)}건의 역할·라우팅 감사 메타데이터 일치"
+            if not failures
+            else "; ".join(failures)
+        ),
+    }
+
+
+def _reference_date(state: RiskState) -> date | None:
+    run_config = state.get("run_config") or {}
+    metrics = state.get("metrics") or {}
+    values = (
+        run_config.get("as_of_date"),
+        ((metrics.get("meta") or {}).get("data_period") or {}).get("end"),
+    )
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            continue
+    return None
+
+
+def _citation_publication_check(state: RiskState, citations: list[dict]) -> dict:
+    """발행일 누락·형식과 house view 최신성을 비차단 경고로 검사한다."""
+    reference = _reference_date(state)
+    warnings: list[str] = []
+    for index, citation in enumerate(citations, 1):
+        extra = citation.get("extra")
+        extra = extra if isinstance(extra, dict) else {}
+        raw_date = extra.get("published_at")
+        try:
+            published = date.fromisoformat(raw_date) if isinstance(raw_date, str) else None
+        except ValueError:
+            published = None
+        if published is None:
+            warnings.append(f"#{index} 발행일 누락/형식 오류")
+            continue
+        if extra.get("category") != "house_view" or reference is None:
+            continue
+        age_months = (reference.year - published.year) * 12 + reference.month - published.month
+        if age_months < 0:
+            warnings.append(f"#{index} house_view 발행일이 기준일 이후")
+        elif age_months > 12:
+            warnings.append(f"#{index} house_view {age_months}개월 경과 — 최신성 중대 경고")
+        elif age_months > 6:
+            warnings.append(f"#{index} house_view {age_months}개월 경과 — 최신성 경고")
+    return {
+        "name": "citation_publication_freshness",
+        "passed": not warnings,
+        "required": False,
+        "detail": (
+            f"인용 {len(citations)}건 발행일·house_view 최신성 확인"
+            if not warnings
+            else "; ".join(warnings)
+        ),
+    }
+
+
 def _build_checks(state: RiskState) -> list[dict]:
     """기존 7개 형태 검사를 preflight로 보존한다."""
     run_config = state.get("run_config") or {}
@@ -101,7 +206,7 @@ def _build_checks(state: RiskState) -> list[dict]:
     invalid = _invalid_citations(citations)
     strict_citation_gate = run_config.get("strict_citation_gate") is True
 
-    return [
+    checks = [
         {
             "name": "metrics_present",
             "passed": bool(metrics),
@@ -145,6 +250,15 @@ def _build_checks(state: RiskState) -> list[dict]:
             "detail": "HITL 승인 잠금 상태",
         },
     ]
+    routing_record = _rag_routing_record(run_config)
+    if routing_record is not None:
+        checks.extend(
+            [
+                _citation_routing_check(verified, routing_record),
+                _citation_publication_check(state, verified),
+            ]
+        )
+    return checks
 
 
 def _expected_dates(state: RiskState) -> set[str]:
