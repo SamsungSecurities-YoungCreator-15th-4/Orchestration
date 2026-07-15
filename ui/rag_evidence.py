@@ -38,10 +38,12 @@ def group_verified_citations(citations) -> dict[str, list[dict]]:
     return grouped
 
 
-def citation_table_rows(citations: list[dict]) -> list[dict]:
+def citation_table_rows(citations: list[object]) -> list[dict]:
     """감사용 필드를 숨기고 고객 화면의 4개 컬럼만 만든다."""
     rows: list[dict] = []
     for citation in citations:
+        if not isinstance(citation, dict):
+            continue
         extra = citation.get("extra")
         extra = extra if isinstance(extra, dict) else {}
         raw_source = citation.get("source")

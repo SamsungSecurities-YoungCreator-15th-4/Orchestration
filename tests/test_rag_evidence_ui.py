@@ -56,7 +56,7 @@ def test_verified_citations_are_grouped_into_four_agreed_sections():
 
 
 def test_customer_rows_expose_only_agreed_fields():
-    rows = citation_table_rows([_citation("macro")])
+    rows = citation_table_rows([None, "invalid", _citation("macro")])
 
     assert rows == [
         {
