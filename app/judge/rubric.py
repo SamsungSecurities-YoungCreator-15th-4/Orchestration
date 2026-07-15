@@ -169,17 +169,19 @@ def numeric_consistency(
         for match in _DATE_RE.finditer(text):
             date = match.group(0)
             context = _mention_context(text, match.start(), match.end())
-            if date in dates:
-                engine_metric_count += 1
-            elif (
+            is_engine_date = (
                 topic == "기준일 및 유의사항"
                 or _ENGINE_DATE_CONTEXT_RE.search(context)
-            ):
-                mismatches.append(f"기준 데이터에 없는 날짜 {date}")
+            )
+            if is_engine_date:
+                if date in dates:
+                    engine_metric_count += 1
+                else:
+                    mismatches.append(f"기준 데이터에 없는 날짜 {date}")
             elif _is_cited_fact(date, topic, quotes_by_topic):
                 evidence_fact_count += 1
             else:
-                mismatches.append(f"날짜 {date}가 metrics 또는 같은 topic의 검증 인용에 없음")
+                mismatches.append(f"날짜 {date}가 같은 topic의 검증 인용에 없음")
 
         text_without_dates = _DATE_RE.sub("", text)
         for match in _NUMBER_RE.finditer(text_without_dates):
@@ -193,23 +195,23 @@ def numeric_consistency(
                 match.start(),
                 match.end(),
             )
-            metric_match = any(
-                math.isclose(normalized, candidate, rel_tol=1e-6, abs_tol=1e-6)
-                for candidate in candidates
-            )
-            if metric_match:
-                engine_metric_count += 1
-            elif (
+            is_engine_metric = (
                 topic in _ENGINE_METRIC_TOPICS
                 or _ENGINE_METRIC_CONTEXT_RE.search(context)
-            ):
-                mismatches.append(f"설명 수치 {raw}{unit}가 metrics에 없음")
+            )
+            if is_engine_metric:
+                metric_match = any(
+                    math.isclose(normalized, candidate, rel_tol=1e-6, abs_tol=1e-6)
+                    for candidate in candidates
+                )
+                if metric_match:
+                    engine_metric_count += 1
+                else:
+                    mismatches.append(f"설명 수치 {raw}{unit}가 metrics에 없음")
             elif _is_cited_fact(mention, topic, quotes_by_topic):
                 evidence_fact_count += 1
             else:
-                mismatches.append(
-                    f"설명 수치 {raw}{unit}가 metrics 또는 같은 topic의 검증 인용에 없음"
-                )
+                mismatches.append(f"설명 수치 {raw}{unit}가 같은 topic의 검증 인용에 없음")
 
     if mismatches:
         return False, "; ".join(mismatches)

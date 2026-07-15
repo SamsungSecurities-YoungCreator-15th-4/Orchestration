@@ -161,6 +161,48 @@ def test_numeric_consistency_rejects_uncited_or_cross_topic_evidence_fact():
     assert "같은 topic의 검증 인용에 없음" in reason
 
 
+def test_numeric_consistency_does_not_accept_uncited_fact_that_matches_metric_value():
+    topic = "거시환경·스트레스 개연성"
+    explanations = [
+        {
+            "topic": topic,
+            "text": "참고자료의 정책금리는 1.00%입니다.",
+            "revision": 0,
+        }
+    ]
+
+    passed, reason = numeric_consistency(
+        explanations,
+        {"confidence": 0.99},
+        {AS_OF_DATE},
+        [],
+    )
+
+    assert passed is False
+    assert "1.00%가 같은 topic의 검증 인용에 없음" in reason
+
+
+def test_numeric_consistency_does_not_accept_uncited_publication_date_matching_as_of_date():
+    topic = "거시환경·스트레스 개연성"
+    explanations = [
+        {
+            "topic": topic,
+            "text": f"한국은행은 {AS_OF_DATE} 회의에서 정책 방향을 발표했습니다.",
+            "revision": 0,
+        }
+    ]
+
+    passed, reason = numeric_consistency(
+        explanations,
+        METRICS,
+        {AS_OF_DATE},
+        [],
+    )
+
+    assert passed is False
+    assert f"날짜 {AS_OF_DATE}가 같은 topic의 검증 인용에 없음" in reason
+
+
 def test_numeric_consistency_does_not_reclassify_wrong_var_as_evidence_fact():
     text = f"기준일 {AS_OF_DATE}, 99% 신뢰수준에서 1일 VaR은 4,000만원입니다."
     explanations = [{"topic": "VaR 해석", "text": text, "revision": 0}]
