@@ -44,8 +44,8 @@
 
 | 파일명 | 발행기관(파일명 추정) | 크기 |
 | --- | --- | --- |
-| methodology_var_cvar_2026.pdf | 삼성증권 영크리에이터 15기 4조 (리스크 계량 방법론 — VaR·CVaR) | 68 KB |
-| methodology_stress_2026.pdf | 삼성증권 영크리에이터 15기 4조 (스트레스 테스트 방법론) | 88 KB |
+| methodology_var_cvar_2026.pdf | 삼성증권 영크리에이터 15기 4조 (리스크 계량 방법론 — VaR·CVaR) | 336 KB |
+| methodology_stress_2026.pdf | 삼성증권 영크리에이터 15기 4조 (스트레스 테스트 방법론) | 479 KB |
 
 ---
 

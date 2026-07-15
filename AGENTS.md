@@ -24,7 +24,7 @@
 | 영역 | 사용 기술 |
 | --- | --- |
 | 오케스트레이션 | LangGraph (StateGraph, MemorySaver, HITL 인터럽트) |
-| LLM | Azure OpenAI (LangChain, temperature=0) — 현재 스텁 |
+| LLM | Azure OpenAI (LangChain, temperature=0) — IPS 추출·RAG 인용·Judge |
 | 결정론 엔진 | numpy/scipy — historical VaR/CVaR, 스트레스 테스트 |
 | 관측성 | LangSmith 트레이싱 |
 | UI | Streamlit |
