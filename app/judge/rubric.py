@@ -138,11 +138,52 @@ def _verified_quotes_by_topic(citations: list | None) -> dict[str, list[str]]:
     return by_topic
 
 
+def _normalized_evidence_number(number: float, unit: str) -> tuple[str, float]:
+    """인용 사실 비교용으로 단위 차원과 값을 정규화한다."""
+    if unit in ("억원", "억"):
+        return "currency_krw", number * 100_000_000
+    if unit == "만원":
+        return "currency_krw", number * 10_000
+    if unit == "원":
+        return "currency_krw", number
+    if unit == "%":
+        return "percentage_point", number
+    if unit == "bp":
+        return "percentage_point", number / 100
+    if unit in ("거래일", "일"):
+        return "duration_day", number
+    raise ValueError(f"지원하지 않는 인용 수치 단위: {unit}")
+
+
 def _is_cited_fact(mention: str, topic: str, quotes_by_topic: dict[str, list[str]]) -> bool:
     """같은 topic 인용 quote에 숫자·날짜가 실제로 존재하는지 확인한다."""
     normalized = " ".join(mention.split())
     quotes = quotes_by_topic.get(topic, [])
-    return bool(normalized) and any(normalized in quote for quote in quotes)
+    if not normalized:
+        return False
+    if _DATE_RE.fullmatch(normalized):
+        return any(normalized in set(_DATE_RE.findall(quote)) for quote in quotes)
+
+    match = _NUMBER_RE.fullmatch(normalized)
+    if match is None:
+        return False
+    number = float(match.group("number").replace(",", ""))
+    target_dimension, target_value = _normalized_evidence_number(number, match.group("unit"))
+    for quote in quotes:
+        for quote_match in _NUMBER_RE.finditer(quote):
+            quote_number = float(quote_match.group("number").replace(",", ""))
+            quote_dimension, quote_value = _normalized_evidence_number(
+                quote_number,
+                quote_match.group("unit"),
+            )
+            if quote_dimension == target_dimension and math.isclose(
+                quote_value,
+                target_value,
+                rel_tol=1e-9,
+                abs_tol=1e-9,
+            ):
+                return True
+    return False
 
 
 def numeric_consistency(

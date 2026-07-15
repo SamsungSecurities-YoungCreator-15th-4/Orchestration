@@ -161,6 +161,82 @@ def test_numeric_consistency_rejects_uncited_or_cross_topic_evidence_fact():
     assert "같은 topic의 검증 인용에 없음" in reason
 
 
+def test_numeric_consistency_rejects_number_that_is_only_substring_of_cited_fact():
+    topic = "거시환경·스트레스 개연성"
+    explanations = [{"topic": topic, "text": "시장 참고 금액은 50,000원입니다.", "revision": 0}]
+    citations = [
+        {
+            "claim": topic,
+            "quote": "시장 참고 금액은 150,000원입니다.",
+            "source": "macro.pdf",
+            "chunk_id": "macro.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(explanations, METRICS, {AS_OF_DATE}, citations)
+
+    assert passed is False
+    assert "50,000원가 같은 topic의 검증 인용에 없음" in reason
+
+
+def test_numeric_consistency_accepts_equivalent_cited_currency_units():
+    topic = "거시환경·스트레스 개연성"
+    explanations = [{"topic": topic, "text": "시장 참고 금액은 0.5억원입니다.", "revision": 0}]
+    citations = [
+        {
+            "claim": topic,
+            "quote": "시장 참고 금액은 5,000만원입니다.",
+            "source": "macro.pdf",
+            "chunk_id": "macro.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(explanations, METRICS, {AS_OF_DATE}, citations)
+
+    assert passed is True
+    assert "evidence_fact=1" in reason
+
+
+def test_numeric_consistency_accepts_equivalent_cited_bp_and_percent():
+    topic = "거시환경·스트레스 개연성"
+    explanations = [{"topic": topic, "text": "정책금리 충격은 250bp입니다.", "revision": 0}]
+    citations = [
+        {
+            "claim": topic,
+            "quote": "정책금리 충격은 2.5%입니다.",
+            "source": "macro.pdf",
+            "chunk_id": "macro.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(explanations, METRICS, {AS_OF_DATE}, citations)
+
+    assert passed is True
+    assert "evidence_fact=1" in reason
+
+
+def test_numeric_consistency_rejects_same_number_with_different_unit_dimension():
+    topic = "거시환경·스트레스 개연성"
+    explanations = [{"topic": topic, "text": "참고 금액은 100원입니다.", "revision": 0}]
+    citations = [
+        {
+            "claim": topic,
+            "quote": "참고 비율은 100%입니다.",
+            "source": "macro.pdf",
+            "chunk_id": "macro.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(explanations, METRICS, {AS_OF_DATE}, citations)
+
+    assert passed is False
+    assert "100원가 같은 topic의 검증 인용에 없음" in reason
+
+
 def test_numeric_consistency_does_not_accept_uncited_fact_that_matches_metric_value():
     topic = "거시환경·스트레스 개연성"
     explanations = [
