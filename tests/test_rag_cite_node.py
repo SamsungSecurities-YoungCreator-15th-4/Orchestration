@@ -13,6 +13,7 @@ from app.nodes.judge_eval import judge_eval
 from app.nodes.rag_cite import (
     _build_query,
     _evidence_rows,
+    _select_diverse_chunks,
     _tax_issue_terms,
     _top_cvar_asset,
     parse_candidates,
@@ -435,6 +436,114 @@ def test_evidence_rows_skip_table_like_oversized_sentence():
     ]
 
 
+def test_evidence_rows_stitch_wrapped_external_pdf_lines_without_boundary_noise():
+    chunks = [
+        {
+            "chunk_id": "house-view.pdf::0002",
+            "source": "house-view.pdf",
+            "text": (
+                "앞 청크에서 잘린 조각\n"
+                "자료 : 삼성증권\n"
+                "• 한국 주식 중에서도 고밸류에이션 종목의\n"
+                "변동성이 높을 전망\n"
+                "참고: 10월 기준\n"
+                "다음 청크로 잘린 조각"
+            ),
+            "char_start": 800,
+            "char_end": 1800,
+        }
+    ]
+
+    assert _evidence_rows(chunks) == [
+        {
+            "evidence_id": "house-view.pdf::0002#S001",
+            "quote": "• 한국 주식 중에서도 고밸류에이션 종목의 변동성이 높을 전망",
+            "chunk_id": "house-view.pdf::0002",
+            "source": "house-view.pdf",
+        }
+    ]
+
+
+def test_evidence_rows_split_unspaced_pdf_sentences_without_breaking_decimal():
+    chunks = [
+        {
+            "chunk_id": "macro.pdf::0001",
+            "source": "macro.pdf",
+            "text": (
+                "금년성장률은2.0%로예상된다."
+                "금융외환시장에서는주요가격변수의변동성이확대되었다."
+            ),
+            "char_start": 0,
+            "char_end": 55,
+        }
+    ]
+
+    quotes = [row["quote"] for row in _evidence_rows(chunks)]
+
+    assert "금년성장률은2.0%로예상된다." in quotes
+    assert "금융외환시장에서는주요가격변수의변동성이확대되었다." in quotes
+
+
+def test_evidence_rows_do_not_split_single_letter_english_abbreviations():
+    chunks = [
+        {
+            "chunk_id": "fomc.pdf::0001",
+            "source": "fomc.pdf",
+            "text": (
+                "The U.S. economy remains resilient. "
+                "Financial conditions have tightened."
+            ),
+            "char_start": 0,
+            "char_end": 73,
+        }
+    ]
+
+    quotes = [row["quote"] for row in _evidence_rows(chunks)]
+
+    assert "The U.S. economy remains resilient." in quotes
+    assert "The U." not in quotes
+    assert "S. economy remains resilient." not in quotes
+
+
+def test_evidence_rows_never_join_quote_across_removed_heading():
+    chunks = [
+        {
+            "chunk_id": "methodology.pdf::0004",
+            "source": "methodology.pdf",
+            "text": "•\n6. 산출 수치의 성격과 재현성\n본 엔진은 결정론적으로 계산한다.",
+            "char_start": 0,
+            "char_end": 42,
+        }
+    ]
+
+    quotes = [row["quote"] for row in _evidence_rows(chunks)]
+
+    assert "• 본 엔진은 결정론적으로 계산한다." not in quotes
+    assert "본 엔진은 결정론적으로 계산한다." in quotes
+
+
+def test_select_diverse_chunks_caps_each_source_and_keeps_retrieval_order():
+    chunks = [
+        {"chunk_id": "a::1", "source": "a.pdf"},
+        {"chunk_id": "a::2", "source": "a.pdf"},
+        {"chunk_id": "a::3", "source": "a.pdf"},
+        {"chunk_id": "b::1", "source": "b.pdf"},
+        {"chunk_id": "b::2", "source": "b.pdf"},
+        {"chunk_id": "c::1", "source": "c.pdf"},
+        {"chunk_id": "c::2", "source": "c.pdf"},
+        {"chunk_id": "d::1", "source": "d.pdf"},
+    ]
+
+    assert [chunk["chunk_id"] for chunk in _select_diverse_chunks(chunks)] == [
+        "a::1",
+        "a::2",
+        "b::1",
+        "b::2",
+        "c::1",
+        "c::2",
+    ]
+
+
 class _BrokenRetriever:
     """검색 중 네트워크류 예외를 던지는 fake."""
 
@@ -681,6 +790,13 @@ def test_category_routing_adds_house_view_and_tax_only_when_state_requires_them(
         "금융소득",
         "종합과세",
     )
+    tax_query = _build_query(
+        "세무 참고",
+        metrics,
+        {"Tax": "금융소득종합과세 대상 여부 확인 필요"},
+    )
+    assert "금융소득 종합과세 비과세 분리과세" in tax_query
+    assert "자영업자 포트폴리오" not in tax_query
 
 
 def test_category_routing_skips_house_view_without_positive_cvar_and_tax_without_issue():

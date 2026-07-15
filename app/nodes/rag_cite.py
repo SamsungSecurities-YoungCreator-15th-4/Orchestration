@@ -32,7 +32,9 @@ from app.state import RiskState
 log = logging.getLogger(__name__)
 
 MAX_CANDIDATES = 8  # LLM 인용 후보 상한 (프롬프트 지시용)
-MAX_EVIDENCE_QUOTE_CHARS = 220  # UI 한 행에서 읽을 수 있는 근거 문장 상한
+MAX_EVIDENCE_QUOTE_CHARS = 320  # 외부 리서치 PDF의 긴 문장도 한 문장 범위에서 허용
+MAX_ROUTE_CHUNKS = 6
+MAX_CHUNKS_PER_SOURCE = 2
 TOPIC_CATEGORIES = {
     "VaR 해석": "methodology",
     "스트레스 시나리오": "methodology",
@@ -79,10 +81,30 @@ NO_TAX_ISSUE_VALUES = frozenset(
         "모름",
     }
 )
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。])\s+")
+_SENTENCE_SPLIT_RE = re.compile(
+    r"(?<=[!?。])\s*|(?<!\b[A-Za-z]\.)(?<=\.)\s*(?!\d)"
+)
 _SENTENCE_END_RE = re.compile(r"[.!?。][\"'”’)]*$")
-_UNREADABLE_HANGUL_RUN_RE = re.compile(r"[가-힣]{16,}")
 _SECTION_HEADING_LINE_RE = re.compile(r"^\d+(?:\.\d+)*\.\s+[^.!?。]{1,80}$")
+_TOC_LEADER_RE = re.compile(r"[.·…]{6,}")
+_PAGE_COUNTER_RE = re.compile(r"^\s*\d+\s*/\s*\d+\s*$")
+_NUMERIC_TABLE_LINE_RE = re.compile(r"^[\s\d.,%()'’\-+~∼]+$")
+_BULLET_LINE_RE = re.compile(r"^[•□▪⦁o\-]\s*")
+_BARE_BULLET_LINE_RE = re.compile(r"^[•□▪⦁o\-]\s*$")
+_NOISE_PREFIX_RE = re.compile(r"^(자료|출처|참고|주)\s*:")
+_NOISE_MARKERS = (
+    "Samsung Securities",
+    "www.samsungpop.com",
+    "http://",
+    "https://",
+    "Tel:",
+    "Fax:",
+    "E-mail:",
+    "공보관:",
+    "이자료는 배포시부터",
+)
+_BOILERPLATE_MARKERS = ("본조사분석자료에수록된내용",)
+_SHORT_LATIN_FRAGMENT_RE = re.compile(r"^[A-Za-z]{1,4}[.)]?")
 
 
 # ---------------------------------------------------------------------------
@@ -199,24 +221,39 @@ def _build_query(topic: str, metrics: dict, ips: dict | None = None) -> str:
 
     if topic == "거시환경·스트레스 개연성":
         return (
-            "고금리 강달러 정책금리 환율 위험자산 가격 하방 압력 / "
-            "스트레스 시나리오 거시환경 개연성 해석 참고"
+            "한국은행 통화정책방향 기준금리 원달러 환율 변동성 금융시장 하방위험 / "
+            "Federal Reserve FOMC policy rate US dollar financial conditions / "
+            "고금리 강달러 스트레스 시나리오 거시환경 개연성"
         )
 
     if topic == "자산시장 참고":
         asset_class = _top_cvar_asset(metrics)
         asset_label = ASSET_LABELS.get(asset_class or "", asset_class or "자산군")
+        asset_terms = {
+            "domestic_equity": "KOSPI 한국 주식 업종 밸류에이션",
+            "global_equity": "글로벌 주식 미국 증시 업종 밸류에이션",
+            "domestic_bond": "국내 채권 국고채 금리 듀레이션",
+            "global_bond": "글로벌 채권 미국 국채 금리 듀레이션",
+            "alternatives": "대체투자 원자재 리츠 변동성",
+            "cash": "현금성자산 단기금리 유동성",
+        }.get(asset_class or "", "")
         return (
-            f"{asset_label} {asset_class or ''} 시장 전망 변동성 하방 위험 / "
+            f"{asset_label} {asset_terms} 시장 전망 변동성 하방 위험 / "
             "CVaR 기여도 상위 자산군 해석 참고"
         )
 
     if topic == "세무 참고":
-        terms = " ".join(_tax_issue_terms(ips or {}))
-        return (
-            f"자영업자 포트폴리오 {terms} 세후 유동성 투자구조 / "
-            "IPS 세무 이슈 해석 참고"
-        )
+        tax_terms = _tax_issue_terms(ips or {})
+        supplements: list[str] = []
+        finance_terms = {"금융소득", "종합과세", "배당소득", "이자소득"}
+        if finance_terms.intersection(tax_terms):
+            supplements.extend(["비과세", "분리과세", "종합소득세", "확정신고"])
+        if "양도소득" in tax_terms:
+            supplements.extend(["양도소득세", "과세", "신고"])
+        if "법인" in tax_terms:
+            supplements.extend(["법인세", "신고"])
+        focused_terms = list(dict.fromkeys([*tax_terms, *supplements]))
+        return f"국세청 {' '.join(focused_terms)} 과세 신고 기준"
 
     return f"리스크 방법론 근거 재검증 / {topic}"
 
@@ -306,6 +343,81 @@ def _build_explanations(
     return explanations
 
 
+def _is_noise_line(line: str) -> bool:
+    """목차·페이지번호·표 숫자·반복 머리말처럼 인용 가치가 없는 줄인지 판정한다."""
+    stripped = line.strip()
+    if not stripped:
+        return True
+    if _TOC_LEADER_RE.search(stripped) or _PAGE_COUNTER_RE.fullmatch(stripped):
+        return True
+    if _NUMERIC_TABLE_LINE_RE.fullmatch(stripped):
+        return True
+    if _SHORT_LATIN_FRAGMENT_RE.fullmatch(stripped):
+        return True
+    if _NOISE_PREFIX_RE.match(stripped):
+        return True
+    return any(marker in stripped for marker in _NOISE_MARKERS)
+
+
+def _is_readable_quote(quote: str) -> bool:
+    """짧은 숫자 조각과 깨진 무공백 문장을 제외하되 정상 장문은 허용한다."""
+    if not quote or len(quote) > MAX_EVIDENCE_QUOTE_CHARS:
+        return False
+    compact = re.sub(r"\s+", "", quote)
+    if _is_noise_line(quote) or any(
+        marker in compact for marker in _BOILERPLATE_MARKERS
+    ):
+        return False
+    meaningful = re.findall(r"[A-Za-z가-힣]", quote)
+    return len(meaningful) >= 2
+
+
+def _fallback_line_quotes(
+    content_lines: list[str],
+    *,
+    starts_mid_document: bool,
+    full_sized_chunk: bool,
+) -> list[str]:
+    """문장부호가 부족한 PDF 줄을 경계 안에서 이어 읽을 수 있는 근거로 복원한다."""
+    lines = list(content_lines)
+    if starts_mid_document and lines:
+        lines = lines[1:]
+    if full_sized_chunk and lines:
+        lines = lines[:-1]
+
+    quotes: list[str] = []
+    buffer = ""
+
+    def flush() -> None:
+        nonlocal buffer
+        quote = re.sub(r"\s+", " ", buffer).strip()
+        if _is_readable_quote(quote):
+            quotes.append(quote)
+        buffer = ""
+
+    for line in lines:
+        if (
+            _is_noise_line(line)
+            or _SECTION_HEADING_LINE_RE.fullmatch(line)
+            or _BARE_BULLET_LINE_RE.fullmatch(line)
+        ):
+            flush()
+            continue
+        if buffer and _BULLET_LINE_RE.match(line):
+            flush()
+        candidate = f"{buffer} {line}".strip() if buffer else line
+        if len(candidate) > MAX_EVIDENCE_QUOTE_CHARS:
+            flush()
+            if len(line) <= MAX_EVIDENCE_QUOTE_CHARS:
+                buffer = line
+        else:
+            buffer = candidate
+        if buffer and _SENTENCE_END_RE.search(buffer):
+            flush()
+    flush()
+    return quotes
+
+
 def _evidence_rows(chunks: list[dict]) -> list[dict]:
     """PDF 줄바꿈을 합친 문장 단위 근거를 결정론적으로 만든다.
 
@@ -324,6 +436,7 @@ def _evidence_rows(chunks: list[dict]) -> list[dict]:
             continue
         if not isinstance(text, str):
             continue
+        normalized_original = re.sub(r"\s+", " ", text).strip()
         source = chunk.get("source")
         source = source if isinstance(source, str) else ""
         content_lines = [
@@ -358,12 +471,22 @@ def _evidence_rows(chunks: list[dict]) -> list[dict]:
         ):
             sentences = sentences[:-1]
 
-        readable_sentences = [
-            quote
-            for quote in sentences
-            if len(quote) <= MAX_EVIDENCE_QUOTE_CHARS
-            and not _UNREADABLE_HANGUL_RUN_RE.search(quote)
-        ]
+        fallback_quotes = _fallback_line_quotes(
+            content_lines,
+            starts_mid_document=starts_mid_document,
+            full_sized_chunk=full_sized_chunk,
+        )
+        readable_sentences: list[str] = []
+        seen_quotes: set[str] = set()
+        for quote in [*sentences, *fallback_quotes]:
+            normalized_quote = re.sub(r"\s+", " ", quote).strip()
+            if (
+                _is_readable_quote(normalized_quote)
+                and normalized_quote in normalized_original
+                and normalized_quote not in seen_quotes
+            ):
+                seen_quotes.add(normalized_quote)
+                readable_sentences.append(normalized_quote)
         for sentence_no, quote in enumerate(readable_sentences, 1):
             rows.append(
                 {
@@ -374,6 +497,26 @@ def _evidence_rows(chunks: list[dict]) -> list[dict]:
                 }
             )
     return rows
+
+
+def _select_diverse_chunks(chunks: list[dict]) -> list[dict]:
+    """검색 순위를 보존하며 동일 문서 독점을 막아 category 내부 출처를 분산한다."""
+    selected: list[dict] = []
+    source_counts: dict[str, int] = {}
+    seen_chunk_ids: set[str] = set()
+    for chunk in chunks:
+        chunk_id = str(chunk.get("chunk_id") or "")
+        if not chunk_id or chunk_id in seen_chunk_ids:
+            continue
+        source = str(chunk.get("source") or chunk_id)
+        if source_counts.get(source, 0) >= MAX_CHUNKS_PER_SOURCE:
+            continue
+        selected.append(chunk)
+        seen_chunk_ids.add(chunk_id)
+        source_counts[source] = source_counts.get(source, 0) + 1
+        if len(selected) >= MAX_ROUTE_CHUNKS:
+            break
+    return selected
 
 
 def _valid_chunks(
@@ -463,6 +606,7 @@ def _build_prompt(
     metrics: dict,
     chunks: list[dict],
     judge_feedback: str,
+    query: str,
 ) -> str:
     evidence_lines = [
         (
@@ -474,11 +618,33 @@ def _build_prompt(
     feedback_line = (
         f"\n직전 judge 피드백(반영할 것): {judge_feedback}\n" if judge_feedback else ""
     )
+    category = _category_for_topic(topic)
+    if category == "methodology":
+        selection_rule = (
+            "이 topic은 계산 방법론 근거다. 설명문의 실질적 주장을 직접 "
+            "뒷받침하는 문장만 선택한다."
+        )
+    elif category == "tax":
+        selection_rule = (
+            "이 topic은 정량 계산 입력이 아닌 세무 해석 참고다. 근거 선택 초점의 "
+            "세무 키워드 가운데 하나 이상과 직접 관련된 과세·신고·감면 규정이나 "
+            "사례를 선택한다. 모든 키워드를 한 문장이 동시에 뒷받침하거나 특정 "
+            "포트폴리오·CVaR 명칭이 원문에 있을 필요는 없다. 단순히 tax category라는 "
+            "이유로 무관한 문장을 고르지 않는다."
+        )
+    else:
+        selection_rule = (
+            "이 topic은 정량 계산 입력이 아닌 해석 참고다. 설명문의 '참고자료로 "
+            "사용한다'는 내부 역할 문구나 특정 포트폴리오·CVaR 명칭이 원문에 "
+            "그대로 있을 필요는 없다. 대신 아래 근거 선택 초점과 직접 관련된 "
+            "구체적 사실·전망·규정만 선택하고, 단순히 같은 category라는 이유로 "
+            "무관한 문장을 고르지 않는다."
+        )
     return (
         "너는 리스크 리포트의 인용 담당자다. 아래 단일 topic 설명의 수치·주장을 "
         "뒷받침하는 인용을 이 topic 전용 근거 청크에서만 고른다.\n"
-        "규칙: 설명문의 각 실질적 주장을 뒷받침하는 evidence_id를 아래 근거 문장에서 "
-        "고른다. evidence_id를 만들거나 여러 근거 문장을 합치지 않는다.\n"
+        f"규칙: {selection_rule} evidence_id는 아래 근거 문장에서만 고르고, "
+        "새로 만들거나 여러 근거 문장을 합치지 않는다.\n"
         f"모든 claim은 정확히 {json.dumps(topic, ensure_ascii=False)}로 출력하라. "
         "근거가 없으면 무관한 인용을 만들지 말고 빈 배열 []을 출력하라.\n"
         f"최대 {MAX_CANDIDATES}개. 다음 JSON 배열만 출력하라: "
@@ -486,6 +652,7 @@ def _build_prompt(
         f"{feedback_line}\n"
         f"## 설명 topic\n{topic}\n\n"
         f"## 설명문\n{explanation.get('text', '')}\n\n"
+        f"## 근거 선택 초점\n{query}\n\n"
         f"## 리스크 지표\n{json.dumps(metrics, ensure_ascii=False, default=str)}\n\n"
         "## 근거 문장\n" + "\n\n".join(evidence_lines)
     )
@@ -623,19 +790,27 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
         except Exception as e:
             log.warning("topic=%s RAG 검색 중 오류 — 해당 topic 건너뜀: %s", topic, e)
             continue
-        chunks = _valid_chunks(retrieved_chunks, expected_category=category)
-        if len(chunks) != len(retrieved_chunks):
+        valid_chunks = _valid_chunks(retrieved_chunks, expected_category=category)
+        if len(valid_chunks) != len(retrieved_chunks):
             log.warning(
                 "topic=%s 검색 결과에서 계약 위반 청크 %d건 제외",
                 topic,
-                len(retrieved_chunks) - len(chunks),
+                len(retrieved_chunks) - len(valid_chunks),
             )
+        chunks = _select_diverse_chunks(valid_chunks)
         if not chunks:
             log.warning("topic=%s 검색 결과 청크 없음 — 해당 topic 건너뜀", topic)
             continue
 
         try:
-            prompt = _build_prompt(topic, explanation, metrics, chunks, judge_feedback)
+            prompt = _build_prompt(
+                topic,
+                explanation,
+                metrics,
+                chunks,
+                judge_feedback,
+                query,
+            )
             prompts[topic] = prompt
             response = llm.invoke(prompt)
             responses.append(response)
