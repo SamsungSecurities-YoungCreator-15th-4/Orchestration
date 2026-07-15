@@ -66,6 +66,7 @@ DETERMINISTIC_CASE_IDS = (
     "EC-20",
 )
 LLM_CASE_IDS = ("EC-06", "EC-07", "EC-08", "EC-09", "EC-16")
+ALL_CASE_IDS = DETERMINISTIC_CASE_IDS + LLM_CASE_IDS
 
 
 class _PassingLLM:
@@ -215,6 +216,11 @@ def _case(case_id: str) -> dict:
     }
 
 
+def build_eval_case(case_id: str) -> dict:
+    """LangSmith 등록 도구와 pytest가 공유하는 단일 평가 케이스 팩토리."""
+    return _case(case_id)
+
+
 def _failed_axes(result: dict) -> set[str]:
     feedback = result.get("judge_feedback")
     if not feedback:
@@ -266,8 +272,6 @@ def test_llm_judge_evalset(case_id: str, azure_llm):
 
 
 def test_evalset_has_15_deterministic_and_5_llm_cases():
-    all_ids = DETERMINISTIC_CASE_IDS + LLM_CASE_IDS
-
     assert len(DETERMINISTIC_CASE_IDS) == 15
     assert len(LLM_CASE_IDS) == 5
-    assert len(set(all_ids)) == 20
+    assert len(set(ALL_CASE_IDS)) == 20
