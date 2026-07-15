@@ -88,7 +88,8 @@ def validate_deployment_state(final: dict, order: list[str]) -> list[DeploymentC
     missing_phases = [
         phase
         for phase in ("input", "analysis")
-        if not isinstance(phases.get(phase), str) or not phases[phase].startswith("https://")
+        if not isinstance(url := phases.get(phase), str)
+        or not url.startswith("https://")
     ]
     privacy = (
         governance.get("langsmith_privacy")
