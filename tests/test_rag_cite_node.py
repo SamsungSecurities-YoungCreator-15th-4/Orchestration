@@ -443,7 +443,7 @@ def test_evidence_rows_stitch_wrapped_external_pdf_lines_without_boundary_noise(
             "source": "house-view.pdf",
             "text": (
                 "앞 청크에서 잘린 조각\n"
-                "자료: 삼성증권\n"
+                "자료 : 삼성증권\n"
                 "• 한국 주식 중에서도 고밸류에이션 종목의\n"
                 "변동성이 높을 전망\n"
                 "참고: 10월 기준\n"
@@ -482,6 +482,27 @@ def test_evidence_rows_split_unspaced_pdf_sentences_without_breaking_decimal():
 
     assert "금년성장률은2.0%로예상된다." in quotes
     assert "금융외환시장에서는주요가격변수의변동성이확대되었다." in quotes
+
+
+def test_evidence_rows_do_not_split_single_letter_english_abbreviations():
+    chunks = [
+        {
+            "chunk_id": "fomc.pdf::0001",
+            "source": "fomc.pdf",
+            "text": (
+                "The U.S. economy remains resilient. "
+                "Financial conditions have tightened."
+            ),
+            "char_start": 0,
+            "char_end": 73,
+        }
+    ]
+
+    quotes = [row["quote"] for row in _evidence_rows(chunks)]
+
+    assert "The U.S. economy remains resilient." in quotes
+    assert "The U." not in quotes
+    assert "S. economy remains resilient." not in quotes
 
 
 def test_evidence_rows_never_join_quote_across_removed_heading():

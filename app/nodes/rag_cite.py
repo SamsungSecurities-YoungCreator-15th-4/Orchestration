@@ -81,7 +81,9 @@ NO_TAX_ISSUE_VALUES = frozenset(
         "모름",
     }
 )
-_SENTENCE_SPLIT_RE = re.compile(r"(?<=[!?。])\s*|(?<=\.)\s*(?!\d)")
+_SENTENCE_SPLIT_RE = re.compile(
+    r"(?<=[!?。])\s*|(?<!\b[A-Za-z]\.)(?<=\.)\s*(?!\d)"
+)
 _SENTENCE_END_RE = re.compile(r"[.!?。][\"'”’)]*$")
 _SECTION_HEADING_LINE_RE = re.compile(r"^\d+(?:\.\d+)*\.\s+[^.!?。]{1,80}$")
 _TOC_LEADER_RE = re.compile(r"[.·…]{6,}")
@@ -89,7 +91,7 @@ _PAGE_COUNTER_RE = re.compile(r"^\s*\d+\s*/\s*\d+\s*$")
 _NUMERIC_TABLE_LINE_RE = re.compile(r"^[\s\d.,%()'’\-+~∼]+$")
 _BULLET_LINE_RE = re.compile(r"^[•□▪⦁o\-]\s*")
 _BARE_BULLET_LINE_RE = re.compile(r"^[•□▪⦁o\-]\s*$")
-_NOISE_PREFIXES = ("자료:", "출처:", "참고:", "주:")
+_NOISE_PREFIX_RE = re.compile(r"^(자료|출처|참고|주)\s*:")
 _NOISE_MARKERS = (
     "Samsung Securities",
     "www.samsungpop.com",
@@ -352,7 +354,7 @@ def _is_noise_line(line: str) -> bool:
         return True
     if _SHORT_LATIN_FRAGMENT_RE.fullmatch(stripped):
         return True
-    if stripped.startswith(_NOISE_PREFIXES):
+    if _NOISE_PREFIX_RE.match(stripped):
         return True
     return any(marker in stripped for marker in _NOISE_MARKERS)
 
