@@ -23,6 +23,7 @@ from app.rag.deployment import (
     validate_manifest,
 )
 from app.rag.ingest import COLLECTION_NAME
+import ui.index_supply as index_supply
 from ui.index_supply import prepare_index_or_stop
 
 
@@ -236,6 +237,57 @@ def test_blob_artifact_is_downloaded_validated_installed_and_cached(
     assert calls == {"manifest": 1, "artifact": 1}
 
 
+@pytest.mark.parametrize(
+    ("corruption", "error_pattern"),
+    [
+        ("size", "크기가 manifest와 다릅니다"),
+        ("sha256", "SHA-256 검증에 실패"),
+    ],
+)
+def test_corrupted_download_is_removed_from_cache_immediately(
+    tmp_path: Path,
+    monkeypatch,
+    corruption: str,
+    error_pattern: str,
+):
+    archive_path, manifest_path, manifest = _package(tmp_path)
+    original = archive_path.read_bytes()
+    corrupted = (
+        original[:-1]
+        if corruption == "size"
+        else bytes([original[0] ^ 0xFF]) + original[1:]
+    )
+
+    monkeypatch.setattr(
+        "app.rag.deployment._download_bytes",
+        lambda _url, *, limit: manifest_path.read_bytes(),
+    )
+    monkeypatch.setattr(
+        "app.rag.deployment._download_file",
+        lambda _url, destination, *, limit: destination.write_bytes(corrupted),
+    )
+    settings = IndexSupplySettings(
+        artifact_url="https://storage.example/index.zip?sas",
+        manifest_url="https://storage.example/manifest.json?sas",
+        expected_version=manifest["index_version"],
+        expected_sha256=manifest["artifact"]["sha256"],
+        required=True,
+    )
+    cache_root = tmp_path / "cache"
+    cached_artifact = (
+        cache_root / manifest["index_version"] / manifest["artifact"]["filename"]
+    )
+
+    with pytest.raises(IndexSupplyError, match=error_pattern):
+        ensure_deployment_index(
+            settings=settings,
+            persist_dir=tmp_path / "target",
+            cache_dir=cache_root,
+        )
+
+    assert not cached_artifact.exists()
+
+
 def test_unsafe_zip_path_is_rejected_before_install(tmp_path: Path, monkeypatch):
     _archive_path, manifest_path, manifest = _package(tmp_path)
     malicious = tmp_path / "malicious.zip"
@@ -309,3 +361,45 @@ def test_streamlit_shows_public_error_and_stops_without_secret_leak():
 
     assert st.errors == [PUBLIC_ERROR_MESSAGE]
     assert "sas-secret" not in st.errors[0]
+
+
+def test_streamlit_index_verification_is_cached_by_version_and_sha(monkeypatch):
+    class Spinner:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class FakeStreamlit:
+        secrets = {
+            "RAG_INDEX_BLOB_URL": (
+                "https://account.blob.core.windows.net/private/index.zip?sig=masked"
+            ),
+            "RAG_INDEX_MANIFEST_URL": (
+                "https://account.blob.core.windows.net/private/index.json?sig=masked"
+            ),
+            "RAG_INDEX_VERSION": "cache-review-v1",
+            "RAG_INDEX_SHA256": "c" * 64,
+            "RAG_INDEX_REQUIRED": "true",
+        }
+
+        def spinner(self, _text: str):
+            return Spinner()
+
+    calls = 0
+
+    def succeed(**_kwargs):
+        nonlocal calls
+        calls += 1
+        return object()
+
+    index_supply._cached_ensure_index.clear()
+    monkeypatch.setattr(index_supply, "ensure_deployment_index", succeed)
+    st = FakeStreamlit()
+
+    prepare_index_or_stop(st)
+    prepare_index_or_stop(st)
+
+    assert calls == 1
+    index_supply._cached_ensure_index.clear()

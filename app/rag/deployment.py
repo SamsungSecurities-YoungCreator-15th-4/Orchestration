@@ -595,8 +595,10 @@ def _ensure_deployment_index_unlocked(
             limit=MAX_ARTIFACT_BYTES,
         )
     if artifact_path.stat().st_size != artifact["size_bytes"]:
+        artifact_path.unlink(missing_ok=True)
         raise IndexSupplyError("RAG 인덱스 아티팩트 크기가 manifest와 다릅니다.")
     if sha256_file(artifact_path) != resolved.expected_sha256:
+        artifact_path.unlink(missing_ok=True)
         raise IndexSupplyError("RAG 인덱스 아티팩트 SHA-256 검증에 실패했습니다.")
 
     target.parent.mkdir(parents=True, exist_ok=True)
