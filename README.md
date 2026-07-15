@@ -84,6 +84,9 @@ RUN_AZURE_JUDGE_EVALSET=1 pytest tests/test_judge_eval_evalset.py
 - `.env`에는 Azure OpenAI와 LangSmith 키를 두되 git에 커밋하지 않는다.
 - 코퍼스 PDF 21건과 `data/chroma/`, 실데이터 parquet는 로컬 전용이다.
 - 추적 가능한 문서 목록은 [`corpus/manifest.md`](corpus/manifest.md)에 유지한다.
+- Streamlit 배포에는 private Azure Blob의 검증된 Chroma 아티팩트를 사용한다.
+  생성·업로드·Secrets 설정은
+  [`docs/rag_index_deployment.md`](docs/rag_index_deployment.md)를 따른다.
 - 제출·시연에서는 `config/config.yaml`의 `strict_citation_gate`를 `true`로 전환한다.
 
 ## 브랜치 규칙

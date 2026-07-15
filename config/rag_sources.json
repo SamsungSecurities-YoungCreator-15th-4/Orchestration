@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "source_count": 21,
+  "categories": {
+    "house_view": [
+      "samsung_bond_202408.pdf",
+      "samsung_bond_202409_check.pdf",
+      "samsung_bond_202409_outlook.pdf",
+      "samsung_bond_202502.pdf",
+      "samsung_equity_202510.pdf",
+      "samsung_equity_202511.pdf"
+    ],
+    "macro": [
+      "bok_framework_2026.pdf",
+      "bok_mpd_202601.pdf",
+      "bok_mpd_202602.pdf",
+      "bok_mpd_202604.pdf",
+      "bok_mpd_202605.pdf",
+      "fed_fomc_202601.pdf",
+      "fed_fomc_202604.pdf"
+    ],
+    "tax": [
+      "nts_building_2026.pdf",
+      "nts_inherit_2026.pdf",
+      "nts_sme_2026.pdf",
+      "nts_taxguide_2026_vol1.pdf",
+      "nts_taxguide_2026_vol2.pdf",
+      "nts_taxguide_2026_vol2_errata.pdf"
+    ],
+    "methodology": [
+      "methodology_stress_2026.pdf",
+      "methodology_var_cvar_2026.pdf"
+    ]
+  }
+}
