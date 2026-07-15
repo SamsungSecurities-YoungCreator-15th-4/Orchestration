@@ -2,20 +2,20 @@ flowchart TD
     START([START]) --> load_inputs
 
     subgraph DET["결정론 계층 (Deterministic)"]
-        load_inputs[load_inputs<br/>config·더미 데이터 로드]
-        conflict_check[conflict_check<br/>룰 기반 충돌 검사]
-        var_engine[var_engine<br/>VaR/CVaR·스트레스 계산]
-        assemble_report[assemble_report<br/>리포트 조립]
+        load_inputs["★결정론 load_inputs<br/>config·입력 정규화"]
+        conflict_check["★결정론 conflict_check<br/>룰 기반 충돌 검사"]
+        var_engine["★결정론 var_engine<br/>VaR/CVaR·스트레스 계산"]
+        assemble_report["★결정론 assemble_report<br/>리포트 조립"]
     end
 
-    subgraph LLM["LLM 계층 (스텁)"]
-        extract_ips[extract_ips<br/>IPS 프로필 추출]
-        rag_cite[rag_cite<br/>설명·인용 생성]
-        judge_eval[judge_eval<br/>LLM-as-judge 평가]
+    subgraph LLM["LLM 계층"]
+        extract_ips["★LLM extract_ips<br/>Structured Output IPS 추출"]
+        rag_cite["★LLM rag_cite<br/>RAG 설명·검증 인용 생성"]
+        judge_eval["★LLM judge_eval<br/>6축 LLM-as-Judge 평가"]
     end
 
     subgraph HITL["HITL 계층"]
-        approval_gate[approval_gate<br/>승인 게이트 · interrupt_before]
+        approval_gate["★HITL approval_gate<br/>PB 승인 게이트 · interrupt_before"]
     end
 
     load_inputs --> extract_ips
@@ -26,6 +26,6 @@ flowchart TD
     approval_gate --> var_engine
     var_engine --> rag_cite
     rag_cite --> judge_eval
-    judge_eval -- "분기③ 불통과 & retries < 3" --> rag_cite
-    judge_eval -- "통과 or 재시도 소진" --> assemble_report
+    judge_eval -- "분기③ 불통과 & judge_retries < 2" --> rag_cite
+    judge_eval -- "통과 or 2회 도달<br/>(실패 시 수동검토)" --> assemble_report
     assemble_report --> END([END])
