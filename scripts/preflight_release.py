@@ -301,12 +301,24 @@ def main() -> None:
             ]
         )
         if args.real:
-            results.append(
-                command_check(
-                    "real graph",
-                    [sys.executable, "scripts/run_graph.py", "--auto-approve"],
-                    required_text='"judge_passed": true',
-                )
+            results.extend(
+                [
+                    command_check(
+                        "four-category RAG search",
+                        [sys.executable, "scripts/smoke_rag.py", "--search-only"],
+                        required_text="CATEGORY_SEARCH: PASS",
+                    ),
+                    command_check(
+                        "deployment graph E2E",
+                        [
+                            sys.executable,
+                            "scripts/run_graph.py",
+                            "--auto-approve",
+                            "--validate-deployment",
+                        ],
+                        required_text="DEPLOYMENT_VALIDATION: PASS",
+                    ),
+                ]
             )
 
     _print_results(results)
