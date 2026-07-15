@@ -198,7 +198,7 @@ def hallucination(
         llm,
         axis="hallucination",
         instruction=(
-            "설명문의 금융·방법론 주장 중 검증된 인용문 또는 해당 청크 원문으로 "
+            "설명문의 실질적 주장 중 검증된 인용문 또는 해당 청크 원문으로 "
             "뒷받침되지 않는 주장이 하나라도 있으면 fail한다. 단, deterministic_context의 "
             "expected_dates에 있는 기준일은 state에서 검증된 값이며, 투자 권유·수익 보장이 "
             "아니라는 의무 면책문은 외부 사실 주장이 아니므로 인용 부재만으로 fail하지 않는다."
