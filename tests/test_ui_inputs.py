@@ -1,5 +1,21 @@
 """Streamlit 고객 입력 화면의 기본 렌더링 테스트."""
+import pytest
 from streamlit.testing.v1 import AppTest
+
+import ui.index_supply
+
+
+@pytest.fixture(autouse=True)
+def _prepared_rag_index(monkeypatch):
+    """UI 구성 테스트는 인덱스 공급 성공 이후의 화면만 독립적으로 검증한다."""
+    ui.index_supply._cached_ensure_index.clear()
+    monkeypatch.setattr(
+        ui.index_supply,
+        "ensure_deployment_index",
+        lambda **_kwargs: object(),
+    )
+    yield
+    ui.index_supply._cached_ensure_index.clear()
 
 
 def test_client_and_portfolio_inputs_render_without_exception():

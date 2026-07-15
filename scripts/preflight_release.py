@@ -22,7 +22,12 @@ EXPECTED_PDF_COUNTS = {
     "tax": 6,
     "methodology": 2,
 }
-SECRET_TEMPLATE_KEYS = ("AZURE_OPENAI_API_KEY", "LANGSMITH_API_KEY")
+SECRET_TEMPLATE_KEYS = (
+    "AZURE_OPENAI_API_KEY",
+    "LANGSMITH_API_KEY",
+    "RAG_INDEX_BLOB_URL",
+    "RAG_INDEX_MANIFEST_URL",
+)
 REQUIRED_GITIGNORE_PATTERNS = frozenset({".env", "data/chroma/", "/corpus/**/*.pdf"})
 OFFLINE_ENV_KEYS = (
     "AZURE_OPENAI_API_KEY",
