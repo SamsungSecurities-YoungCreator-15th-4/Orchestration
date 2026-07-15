@@ -1,9 +1,11 @@
 """자연어 IPS·포트폴리오 입력부터 PB 승인·리스크 결과까지 제공하는 Streamlit UI."""
+import html
 import sys
 import uuid
 from pathlib import Path
 
 import streamlit as st
+from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -14,6 +16,11 @@ from app.nodes.load_inputs import (
     SAMPLE_RAW_INPUT,
     portfolio_from_percentages,
 )
+from app.observability.langsmith import (
+    merge_observability,
+    prepare_trace_invocation,
+    tracing_scope,
+)
 from app.state import (
     FIXED_AGE,
     FIXED_ASSET_EOK,
@@ -22,8 +29,19 @@ from app.state import (
     FIXED_RISK,
     IPSProfile,
 )
+from ui.rag_evidence import (
+    RAG_EVIDENCE_SECTIONS,
+    citation_table_rows,
+    group_verified_citations,
+)
+from ui.index_supply import prepare_index_or_stop
+
+ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(ROOT / ".env")
 
 st.set_page_config(page_title="재현가능·설명가능 리스크 리포트 엔진", layout="wide")
+prepare_index_or_stop(st)
+
 st.markdown(
     """
     <style>
@@ -71,6 +89,36 @@ st.markdown(
     .status-tile-blue .value { color: #0b4fbf; }
     .status-tile-gray { background: #eef0f3; }
     .status-tile-gray .value { color: #555; }
+    .status-tile-yellow { background: #fff8e1; }
+    .status-tile-yellow .value { color: #8a6d00; }
+
+    .worst-tile {
+        background: #fdecec; border: 1px solid #f3b8b8; border-radius: 10px;
+        padding: 1rem 1.2rem; margin-bottom: 0.9rem;
+    }
+    .worst-tile .worst-label {
+        display: inline-block; background: #c62828; color: white;
+        border-radius: 999px; padding: 0.15rem 0.7rem; font-size: 0.78rem;
+        font-weight: 700; margin-bottom: 0.5rem;
+    }
+    .worst-tile .worst-scenario { font-size: 1.15rem; font-weight: 700; color: #1a1a1a; }
+    .worst-tile .worst-figures { font-size: 1rem; color: #333; margin-top: 0.3rem; }
+    .worst-tile .worst-figures b { color: #c62828; }
+
+    .checks-table { width: 100%; border-collapse: collapse; }
+    .checks-table td {
+        padding: 0.75rem 1rem; line-height: 1.6; font-size: 0.92rem;
+        border-bottom: 1px solid #eee; vertical-align: middle;
+    }
+    .checks-table td:first-child { color: #222; }
+    .checks-table td.check-col {
+        width: 60px; text-align: center; font-size: 1.6rem; color: #222;
+    }
+    .checks-table th {
+        text-align: left; padding: 0.75rem 1rem; font-size: 0.92rem;
+        border-bottom: 2px solid #ddd; color: #555;
+    }
+    .checks-table th.check-col { text-align: center; }
 
     .footer-box {
         background: #f6f7f9; border-radius: 10px; padding: 1rem 1.2rem;
@@ -93,7 +141,10 @@ def section_title(text: str) -> None:
 SCENARIO_LABELS = {
     "A_high_rate": "고금리 충격",
     "B_strong_usd": "강달러 충격",
+    "C_covid": "코로나 충격",
 }
+
+ASSET_LABELS = dict(ASSET_DEFINITIONS)
 
 
 def scenario_label(code: str | None) -> str:
@@ -112,6 +163,24 @@ def format_pct(val) -> str:
     if val is None:
         return "-"
     return f"{val:.1%}"
+
+
+def format_range(low, high, point=None) -> str:
+    """신뢰구간이 있으면 범위로, 없으면(구엔진 등) 점추정치로 폴백한다.
+
+    위조정밀도 방지를 위해 "약 X원"이 아니라 구간으로 보여주는 게
+    목적이라, low/high가 있으면 point는 무시한다.
+    """
+    if low is not None and high is not None:
+        return f"{format_krw(low)} ~ {format_krw(high)}"
+    return format_krw(point)
+
+
+def format_pct_range(low, high, point=None) -> str:
+    """format_range와 동일한 규칙을 비율(%)에 적용한다."""
+    if low is not None and high is not None:
+        return f"{format_pct(low)} ~ {format_pct(high)}"
+    return format_pct(point)
 
 
 DEFAULT_PERCENTAGES = {
@@ -177,21 +246,30 @@ if not report:
         try:
             portfolio = portfolio_from_percentages(percentages)
             graph = build_graph()
-            config = {"configurable": {"thread_id": str(uuid.uuid4())}}
+            invocation = prepare_trace_invocation(
+                {"configurable": {"thread_id": str(uuid.uuid4())}},
+                phase="input",
+            )
+            payload = {
+                "raw_input": raw_input,
+                "portfolio": portfolio,
+                "demo_options": {
+                    "force_judge_fail": int(force_judge_fail),
+                    "force_conflict": with_conflict,
+                },
+                "run_config": {"observability": invocation.observability},
+            }
+            if invocation.trace_id:
+                payload["trace_id"] = invocation.trace_id
             with st.spinner("gpt-4o로 IPS를 추출하고 충돌을 검사하는 중..."):
-                for _ in graph.stream(
-                    {
-                        "raw_input": raw_input,
-                        "portfolio": portfolio,
-                        "demo_options": {
-                            "force_judge_fail": int(force_judge_fail),
-                            "force_conflict": with_conflict,
-                        },
-                    },
-                    config,
-                    stream_mode="updates",
-                ):
-                    pass
+                with tracing_scope(invocation):
+                    for _ in graph.stream(
+                        payload,
+                        invocation.config,
+                        stream_mode="updates",
+                    ):
+                        pass
+            config = invocation.config
             snapshot = graph.get_state(config)
             if not (snapshot.next and "approval_gate" in snapshot.next):
                 raise RuntimeError("그래프가 PB 승인 게이트에서 정지하지 않았습니다.")
@@ -253,12 +331,26 @@ if not report:
                     try:
                         graph = st.session_state["pending_graph"]
                         config = st.session_state["pending_config"]
+                        resume_invocation = prepare_trace_invocation(
+                            config,
+                            phase="analysis",
+                            trace_id=pending.get("trace_id"),
+                        )
+                        resume_run_config = dict(pending.get("run_config") or {})
+                        resume_run_config["observability"] = merge_observability(
+                            resume_run_config.get("observability"),
+                            resume_invocation.observability,
+                        )
+                        checkpoint_config = {
+                            "configurable": resume_invocation.config["configurable"],
+                        }
                         reviewed_ips = IPSProfile.model_validate(
                             {**ips, "Unique": unique_text}
                         ).model_dump()
                         graph.update_state(
-                            config,
+                            checkpoint_config,
                             {
+                                "run_config": resume_run_config,
                                 "ips": reviewed_ips,
                                 "approval": {
                                     "status": "reviewed",
@@ -274,9 +366,16 @@ if not report:
                             },
                         )
                         with st.spinner("승인된 포트폴리오의 리스크를 분석하는 중..."):
-                            for _ in graph.stream(None, config, stream_mode="updates"):
-                                pass
-                        st.session_state["report"] = graph.get_state(config).values.get("report")
+                            with tracing_scope(resume_invocation):
+                                for _ in graph.stream(
+                                    None,
+                                    resume_invocation.config,
+                                    stream_mode="updates",
+                                ):
+                                    pass
+                        st.session_state["report"] = graph.get_state(
+                            resume_invocation.config
+                        ).values.get("report")
                         for key in ("pending_graph", "pending_config", "pending_state"):
                             st.session_state.pop(key, None)
                         st.rerun()
@@ -309,42 +408,105 @@ else:
 
     risk = report.get("summary", {}).get("risk", {})
     with st.container(border=True):
-        section_title("핵심 지표 (VaR / CVaR, 99% 신뢰수준)")
+        ci_level = risk.get("ci_level")
+        title = "핵심 지표 (VaR / CVaR, 99% 신뢰수준)"
+        if ci_level is not None:
+            title += f" · {ci_level:.0%} 신뢰구간"
+        section_title(title)
         st.table(
             {
                 "기간": ["1일", "10일"],
-                "VaR": [
-                    format_krw(risk.get('var_1d_krw')),
-                    format_krw(risk.get('var_10d_krw')),
+                "VaR (금액)": [
+                    format_range(
+                        risk.get("var_1d_krw_low"), risk.get("var_1d_krw_high"), risk.get("var_1d_krw")
+                    ),
+                    format_range(
+                        risk.get("var_10d_krw_low"), risk.get("var_10d_krw_high"), risk.get("var_10d_krw")
+                    ),
                 ],
-                "CVaR": [
-                    format_krw(risk.get('cvar_1d_krw')),
-                    format_krw(risk.get('cvar_10d_krw')),
+                "VaR (수익률)": [
+                    format_pct_range(
+                        risk.get("var_1d_pct_low"), risk.get("var_1d_pct_high"), risk.get("var_1d_pct")
+                    ),
+                    format_pct_range(
+                        risk.get("var_10d_pct_low"), risk.get("var_10d_pct_high"), risk.get("var_10d_pct")
+                    ),
+                ],
+                "CVaR (금액)": [
+                    format_range(
+                        risk.get("cvar_1d_krw_low"), risk.get("cvar_1d_krw_high"), risk.get("cvar_1d_krw")
+                    ),
+                    format_range(
+                        risk.get("cvar_10d_krw_low"), risk.get("cvar_10d_krw_high"), risk.get("cvar_10d_krw")
+                    ),
+                ],
+                "CVaR (수익률)": [
+                    format_pct_range(
+                        risk.get("cvar_1d_pct_low"), risk.get("cvar_1d_pct_high"), risk.get("cvar_1d_pct")
+                    ),
+                    format_pct_range(
+                        risk.get("cvar_10d_pct_low"), risk.get("cvar_10d_pct_high"), risk.get("cvar_10d_pct")
+                    ),
                 ],
             }
         )
 
+    drilldown = risk.get("drilldown") or []
+    if drilldown:
+        with st.container(border=True):
+            section_title("CVaR 자산군별 기여도")
+            st.caption("최악 1% 구간에서 각 자산군이 CVaR에 기여한 정도")
+            st.table(
+                [
+                    {
+                        "자산군": ASSET_LABELS.get(row["asset_class"], row["asset_class"]),
+                        "기여 금액": format_krw(row["contribution_krw"]),
+                        "기여 비중": format_pct(row["contribution_pct"]),
+                    }
+                    for row in drilldown
+                ]
+            )
+
     with st.container(border=True):
         section_title("스트레스 테스트")
         scenario_count = risk.get("stress_scenario_count", 0)
-        st.caption(f"최악 시나리오 기준 (전체 {scenario_count}건 중 최대 손실)")
-        s1, s2 = st.columns(2)
-        s1.metric("대표 시나리오", scenario_label(risk.get("stress_scenario")))
-        s2.markdown(
-            f"**손실액**<br><span style='color:#0b4fbf; font-size:1.3rem; font-weight:700;'>"
-            f"{format_krw(risk.get('stress_loss_krw'))}</span>",
+        worst_scenario_code = risk.get("stress_scenario")
+        worst_loss = format_range(
+            risk.get("stress_loss_krw_low"),
+            risk.get("stress_loss_krw_high"),
+            risk.get("stress_loss_krw"),
+        )
+        worst_loss_pct = format_pct_range(
+            risk.get("stress_loss_pct_low"),
+            risk.get("stress_loss_pct_high"),
+            risk.get("stress_loss_pct"),
+        )
+        st.markdown(
+            f"""
+            <div class="worst-tile">
+            <span class="worst-label">최악 시나리오 (전체 {scenario_count}건 중)</span>
+            <div class="worst-scenario">{scenario_label(worst_scenario_code)}</div>
+            <div class="worst-figures">손실액 <b>{worst_loss}</b> · 손실률 <b>{worst_loss_pct}</b></div>
+            </div>
+            """,
             unsafe_allow_html=True,
         )
+
         scenarios = risk.get("stress_scenarios") or []
         if scenarios:
+            st.caption(f"개별 시나리오 비교 (전체 {scenario_count}건)")
             st.table(
                 [
                     {
                         "시나리오": scenario_label(sc.get("scenario")),
                         "설명": sc.get("description"),
                         "근거": sc.get("reference"),
-                        "손실액(원)": format_krw(sc.get('loss_krw'), suffix=""),
-                        "손실률": format_pct(sc.get('loss_pct')),
+                        "손실액(범위)": format_range(
+                            sc.get("loss_krw_low"), sc.get("loss_krw_high"), sc.get("loss_krw")
+                        ),
+                        "손실률(범위)": format_pct_range(
+                            sc.get("loss_pct_low"), sc.get("loss_pct_high"), sc.get("loss_pct")
+                        ),
                     }
                     for sc in scenarios
                 ]
@@ -356,8 +518,16 @@ else:
         e1, e2 = st.columns(2)
         e1.metric("검증 통과 인용", f"{evidence.get('verified_citation_count', 0)}건")
         e2.metric("전체 인용", f"{evidence.get('citation_count', 0)}건")
-        if evidence.get("sources"):
-            st.caption("출처: " + ", ".join(evidence["sources"]))
+
+        grouped_citations = group_verified_citations(report.get("citations") or [])
+        for section in RAG_EVIDENCE_SECTIONS:
+            category = section["category"]
+            section_citations = grouped_citations[category]
+            st.markdown(f"#### {section['title']}")
+            if section_citations:
+                st.table(citation_table_rows(section_citations))
+            else:
+                st.caption("해당 역할로 검증된 인용이 없습니다.")
 
     with st.container(border=True):
         section_title("품질 검증")
@@ -366,36 +536,57 @@ else:
         judge_passed = governance.get("judge_passed")
         gate_on = governance.get("strict_citation_gate")
 
-        def status_tile(label: str, value: str, is_positive: bool) -> str:
-            tone = "status-tile-blue" if is_positive else "status-tile-gray"
+        def status_tile(label: str, value: str, tone: str) -> str:
             return (
-                f'<div class="status-tile {tone}">'
+                f'<div class="status-tile status-tile-{tone}">'
                 f'<div class="label">{label}</div><div class="value">{value}</div></div>'
             )
 
+        if judge_passed and warnings:
+            # 상단 "확인 필요" 경고와 같은 사실을 반대로 말하지 않도록,
+            # 통과했지만 수동검토가 필요한 상태는 별도 톤으로 구분한다.
+            judge_label, judge_tone = "조건부 통과 (수동검토 필요)", "yellow"
+        elif judge_passed:
+            judge_label, judge_tone = "통과", "blue"
+        else:
+            judge_label, judge_tone = "검토 필요", "gray"
+
         t1, t2 = st.columns(2)
         t1.markdown(
-            status_tile("품질 검증", "통과" if judge_passed else "검토 필요", bool(judge_passed)),
+            status_tile("품질 검증", judge_label, judge_tone),
             unsafe_allow_html=True,
         )
         t2.markdown(
-            status_tile("근거 검증 방식", "엄격" if gate_on else "표준", bool(gate_on)),
+            status_tile("근거 검증 방식", "엄격" if gate_on else "표준", "blue" if gate_on else "gray"),
             unsafe_allow_html=True,
         )
         st.markdown("<br>", unsafe_allow_html=True)
         checks = judge.get("checks") or []
         if checks:
-            st.dataframe(
-                [
-                    {"검증 항목": c.get("detail"), "통과 여부": c.get("passed")}
-                    for c in checks
-                ],
-                width="stretch",
-                hide_index=True,
+            rows = "".join(
+                f'<tr><td>{html.escape(str(c.get("detail") or ""))}</td>'
+                f'<td class="check-col">{"☑" if c.get("passed") else "☐"}</td></tr>'
+                for c in checks
+            )
+            st.markdown(
+                f"""
+                <table class="checks-table">
+                <thead><tr><th>검증 항목</th><th class="check-col">통과 여부</th></tr></thead>
+                <tbody>{rows}</tbody>
+                </table>
+                """,
+                unsafe_allow_html=True,
             )
 
     st.markdown("<br>", unsafe_allow_html=True)
     reproducibility = report.get("reproducibility", {})
+    governance = report.get("governance", {})
+    methodology_ref = reproducibility.get("methodology_ref")
+    methodology_ref_text = (
+        ", ".join(str(ref) for ref in methodology_ref)
+        if isinstance(methodology_ref, list)
+        else str(methodology_ref or "")
+    )
     st.markdown(
         f"""
         <div class="footer-box">
@@ -403,10 +594,26 @@ else:
         <br><br>
         <div class="mono">
         computation_hash: {reproducibility.get('computation_hash')}<br>
-        methodology_ref:&nbsp;&nbsp;{reproducibility.get('methodology_ref')}<br>
+        methodology_ref:&nbsp;&nbsp;{methodology_ref_text}<br>
         trace_id:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{reproducibility.get('trace_id')}
         </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+    raw_trace_urls = governance.get("langsmith_trace_urls")
+    trace_urls = raw_trace_urls if isinstance(raw_trace_urls, dict) else {}
+    valid_trace_urls = [
+        (phase, url)
+        for phase, url in trace_urls.items()
+        if isinstance(url, str) and url.startswith("https://")
+    ]
+    if valid_trace_urls:
+        columns = st.columns(len(valid_trace_urls))
+        phase_labels = {"input": "입력·IPS", "analysis": "리스크·Judge"}
+        for column, (phase, url) in zip(columns, valid_trace_urls, strict=True):
+            column.link_button(f"LangSmith {phase_labels.get(phase, phase)} trace", url)
+    else:
+        trace_url = governance.get("langsmith_trace_url")
+        if isinstance(trace_url, str) and trace_url.startswith("https://"):
+            st.link_button("LangSmith trace 열기", trace_url)

@@ -11,13 +11,49 @@ from __future__ import annotations
 
 import json
 import os
+import re
+from datetime import date
 
 from app.judge.rubric import AXIS_NAMES, evaluate_rubric
+from app.llm.audit import with_llm_audit
+from app.observability.langsmith import annotate_current_run
+from app.rag.contracts import EVIDENCE_ROLES, ROUTING_CONTRACT
 from app.state import RiskState
 
 FORCE_FAIL_ENV = "RISK_FORCE_JUDGE_FAIL"
 MAX_JUDGE_RETRIES = 2
 MANUAL_REVIEW_WARNING = "검증 미통과 — 수동검토 필요"
+
+
+class _AuditedLLM:
+    """주입된 LangChain 모델을 그대로 호출하며 실제 프롬프트만 기록한다."""
+
+    def __init__(self, llm):
+        self.llm = llm
+        self.prompts: list[object] = []
+        self.responses: list[object] = []
+
+    def invoke(self, prompt, *args, **kwargs):
+        self.prompts.append(prompt)
+        response = self.llm.invoke(prompt, *args, **kwargs)
+        self.responses.append(response)
+        return response
+
+    def __getattr__(self, name):
+        return getattr(self.llm, name)
+
+
+def _named_prompts(prompts: list[object]) -> dict[str, str]:
+    """Judge prompt 본문의 판정 축을 감사 레코드 이름으로 사용한다."""
+    named: dict[str, str] = {}
+    for index, prompt in enumerate(prompts, 1):
+        prompt_str = str(prompt)
+        match = re.search(r"판정 축:\s*([^\n]+)", prompt_str)
+        name = match.group(1).strip() if match else f"prompt_{index}"
+        if name in named:
+            name = f"{name}_{index}"
+        named[name] = prompt_str
+    return named
 
 
 def _safe_int_env(name: str, default: int = 0) -> int:
@@ -49,6 +85,109 @@ def _invalid_citations(citations: list) -> list[dict]:
     return [citation for citation in citations if not _is_verified_citation(citation)]
 
 
+def _rag_routing_record(run_config: dict) -> dict | None:
+    """현재 RAG 감사 계약이 활성화된 경우 latest record를 반환한다."""
+    audit = run_config.get("audit") if isinstance(run_config, dict) else None
+    llm_audit = audit.get("llm") if isinstance(audit, dict) else None
+    rag_audit = llm_audit.get("rag_cite") if isinstance(llm_audit, dict) else None
+    latest = rag_audit.get("latest") if isinstance(rag_audit, dict) else None
+    if (
+        isinstance(latest, dict)
+        and latest.get("routing_contract") == ROUTING_CONTRACT
+    ):
+        return latest
+    return None
+
+
+def _citation_routing_check(citations: list[dict], latest: dict) -> dict:
+    """인용의 역할·라우팅 사유가 해당 실행의 route 감사기록과 일치하는지 검사한다."""
+    raw_routes = latest.get("routes")
+    routes = raw_routes if isinstance(raw_routes, list) else []
+    route_by_key = {
+        (route.get("topic"), route.get("category")): route
+        for route in routes
+        if isinstance(route, dict)
+    }
+    failures: list[str] = []
+    for index, citation in enumerate(citations, 1):
+        extra = citation.get("extra")
+        extra = extra if isinstance(extra, dict) else {}
+        category = extra.get("category")
+        expected_role = EVIDENCE_ROLES.get(category)
+        route = route_by_key.get((citation.get("claim"), category))
+        if expected_role is None:
+            failures.append(f"#{index} category 오류")
+        elif extra.get("evidence_role") != expected_role:
+            failures.append(f"#{index} evidence_role 불일치")
+        if route is None:
+            failures.append(f"#{index} 활성 route 없음")
+        elif extra.get("routing_reason") != route.get("routing_reason"):
+            failures.append(f"#{index} routing_reason 불일치")
+    return {
+        "name": "citation_routing_contract",
+        "passed": not failures,
+        "required": True,
+        "detail": (
+            f"인용 {len(citations)}건의 역할·라우팅 감사 메타데이터 일치"
+            if not failures
+            else "; ".join(failures)
+        ),
+    }
+
+
+def _reference_date(state: RiskState) -> date | None:
+    run_config = state.get("run_config") or {}
+    metrics = state.get("metrics") or {}
+    values = (
+        run_config.get("as_of_date"),
+        ((metrics.get("meta") or {}).get("data_period") or {}).get("end"),
+    )
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            continue
+    return None
+
+
+def _citation_publication_check(state: RiskState, citations: list[dict]) -> dict:
+    """발행일 누락·형식과 house view 최신성을 비차단 경고로 검사한다."""
+    reference = _reference_date(state)
+    warnings: list[str] = []
+    for index, citation in enumerate(citations, 1):
+        extra = citation.get("extra")
+        extra = extra if isinstance(extra, dict) else {}
+        raw_date = extra.get("published_at")
+        try:
+            published = date.fromisoformat(raw_date) if isinstance(raw_date, str) else None
+        except ValueError:
+            published = None
+        if published is None:
+            warnings.append(f"#{index} 발행일 누락/형식 오류")
+            continue
+        if extra.get("category") != "house_view" or reference is None:
+            continue
+        age_months = (reference.year - published.year) * 12 + reference.month - published.month
+        if age_months < 0:
+            warnings.append(f"#{index} house_view 발행일이 기준일 이후")
+        elif age_months > 12:
+            warnings.append(f"#{index} house_view {age_months}개월 경과 — 최신성 중대 경고")
+        elif age_months > 6:
+            warnings.append(f"#{index} house_view {age_months}개월 경과 — 최신성 경고")
+    return {
+        "name": "citation_publication_freshness",
+        "passed": not warnings,
+        "required": False,
+        "detail": (
+            f"인용 {len(citations)}건 발행일·house_view 최신성 확인"
+            if not warnings
+            else "; ".join(warnings)
+        ),
+    }
+
+
 def _build_checks(state: RiskState) -> list[dict]:
     """기존 7개 형태 검사를 preflight로 보존한다."""
     run_config = state.get("run_config") or {}
@@ -67,7 +206,7 @@ def _build_checks(state: RiskState) -> list[dict]:
     invalid = _invalid_citations(citations)
     strict_citation_gate = run_config.get("strict_citation_gate") is True
 
-    return [
+    checks = [
         {
             "name": "metrics_present",
             "passed": bool(metrics),
@@ -111,6 +250,15 @@ def _build_checks(state: RiskState) -> list[dict]:
             "detail": "HITL 승인 잠금 상태",
         },
     ]
+    routing_record = _rag_routing_record(run_config)
+    if routing_record is not None:
+        checks.extend(
+            [
+                _citation_routing_check(verified, routing_record),
+                _citation_publication_check(state, verified),
+            ]
+        )
+    return checks
 
 
 def _expected_dates(state: RiskState) -> set[str]:
@@ -201,9 +349,10 @@ def judge_eval(state: RiskState, *, llm=None) -> dict:
     if not isinstance(force_fail_n, int) or isinstance(force_fail_n, bool):
         force_fail_n = _safe_int_env(FORCE_FAIL_ENV)
     judge_llm = llm if llm is not None else _get_default_llm()
+    audited_llm = _AuditedLLM(judge_llm) if judge_llm is not None else None
 
     preflight_checks = _build_checks(state)
-    rubric_checks, rubric, rubric_manual_flags = _rubric_checks(state, judge_llm)
+    rubric_checks, rubric, rubric_manual_flags = _rubric_checks(state, audited_llm)
     checks = preflight_checks + rubric_checks
     score = _score(checks)
     failures = _failure_items(checks)
@@ -232,7 +381,35 @@ def judge_eval(state: RiskState, *, llm=None) -> dict:
     )
     feedback = "" if passed else _feedback(retries, failures)
 
+    prompt_map = _named_prompts(audited_llm.prompts if audited_llm else [])
+    audited_config = with_llm_audit(
+        state.get("run_config") or {},
+        component="judge_eval",
+        attempt=retries,
+        prompts=prompt_map,
+        llm=judge_llm,
+        responses=audited_llm.responses if audited_llm else [],
+    )
+    failed_axes = [item["axis"] for item in failures]
+    latest = audited_config["audit"]["llm"]["judge_eval"]["latest"]
+    annotate_current_run(
+        metadata={
+            "trace_id": state.get("trace_id"),
+            "failed_axes": failed_axes,
+            "judge_feedback": feedback,
+            "judge_retries": retries,
+            "judge_prompt_hash": latest["prompt_hash"]["aggregate_sha256"],
+            "model_version": latest["model_version"],
+        },
+        tags=[
+            f"judge-attempt:{retries}",
+            "judge:passed" if passed else "judge:failed",
+            *(f"failed-axis:{axis}" for axis in failed_axes),
+        ],
+    )
+
     return {
+        "run_config": audited_config,
         "judge_retries": retries,
         "judge": {
             "passed": passed,

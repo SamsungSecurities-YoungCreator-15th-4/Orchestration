@@ -1,14 +1,11 @@
-"""AzureChatOpenAI 팩토리 — 현재 스켈레톤에서는 미사용 (LLM 노드는 스텁).
-
-실제 연결 시 .env의 AZURE_OPENAI_* 값을 사용한다.
-"""
+"""IPS 추출·RAG 인용·Judge가 공유하는 AzureChatOpenAI 팩토리."""
 import os
 
 
 def get_llm(temperature: float = 0.0, *, seed: int | None = None):
     """AzureChatOpenAI 인스턴스 생성 (temperature=0 고정 기본값).
 
-    호출 시점에 import하여, 키가 없는 스켈레톤 실행 경로에서는
+    호출 시점에 import하여, 키가 없는 오프라인 실행 경로에서는
     어떤 외부 의존도 초기화되지 않도록 한다.
     """
     required = ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_DEPLOYMENT"]

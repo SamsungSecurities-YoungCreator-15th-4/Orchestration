@@ -4,13 +4,40 @@
 검색 결과는 청크 원문 + metadata를 온전히 보존해 반환한다
 (citations.verify_citations 검증에 원문이 필요하다).
 """
+
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
-from app.rag.ingest import COLLECTION_NAME, DEFAULT_PERSIST_DIR, build_embedder
+from app.rag.ingest import (
+    CATEGORIES,
+    COLLECTION_NAME,
+    DEFAULT_PERSIST_DIR,
+    build_embedder,
+    infer_published_at,
+)
 
-DEFAULT_TOP_K = 4  # 반환 청크 수 기본값
+# category 안에서 여러 문서의 후보를 확보한 뒤 노드 계층에서 출처별 상한을 적용한다.
+DEFAULT_TOP_K = 12
+
+
+def _invoke_with_category_filter(retriever, query: str, category: str):
+    """retriever 종류에 맞게 category filter를 주입하되 원본은 변경하지 않는다.
+
+    VectorStoreRetriever 계열은 버전별 invoke kwargs 전달 규약 차이를 피하기 위해
+    search_kwargs를 가진 얕은 복사본에 filter를 넣는다. 커스텀 retriever는 기존
+    invoke kwargs 계약을 사용하며, filter를 제거한 무필터 재시도는 허용하지 않는다.
+    """
+    search_kwargs = getattr(retriever, "search_kwargs", None)
+    if isinstance(search_kwargs, dict):
+        filtered_retriever = copy.copy(retriever)
+        filtered_retriever.search_kwargs = {
+            **search_kwargs,
+            "filter": {"category": category},
+        }
+        return filtered_retriever.invoke(query) or []
+    return retriever.invoke(query, filter={"category": category}) or []
 
 
 def index_exists(persist_dir: str = DEFAULT_PERSIST_DIR) -> bool:
@@ -46,22 +73,43 @@ def build_retriever(
     return store.as_retriever(search_kwargs={"k": k})
 
 
-def retrieve_chunks(retriever, query: str) -> list[dict]:
+def retrieve_chunks(
+    retriever,
+    query: str,
+    *,
+    category: str | None = None,
+) -> list[dict]:
     """retriever로 검색해 청크 원문+metadata를 보존한 dict 목록으로 반환.
 
-    각 항목: {"text", "chunk_id", "source", "category", "char_start", "char_end"}
+    각 항목: {"text", "chunk_id", "source", "category", "published_at",
+    "char_start", "char_end"}
     (metadata 키가 없으면 빈 값으로 채운다 — 검증 로직이 KeyError 없이 동작하도록.)
+
+    category가 주어지면 Chroma metadata filter를 검색 시점에 적용한다. 검색 뒤
+    노드 계층에서도 category를 다시 검증하므로, 벡터 검색 구현이 filter 계약을
+    어기더라도 다른 역할의 문서가 인용 후보로 섞이지 않는다.
     """
-    docs = retriever.invoke(query) or []
+    if category is not None and category not in CATEGORIES:
+        raise ValueError(
+            f"지원하지 않는 RAG category입니다: {category!r} (허용값: {CATEGORIES})"
+        )
+    docs = (
+        _invoke_with_category_filter(retriever, query, category)
+        if category
+        else retriever.invoke(query) or []
+    )
     out: list[dict] = []
     for d in docs:
         md = d.metadata or {}
+        source = md.get("source", "")
         out.append(
             {
                 "text": d.page_content,
                 "chunk_id": md.get("chunk_id", ""),
-                "source": md.get("source", ""),
+                "source": source,
                 "category": md.get("category", ""),
+                "published_at": md.get("published_at", "")
+                or infer_published_at(source),
                 "char_start": md.get("char_start"),
                 "char_end": md.get("char_end"),
             }

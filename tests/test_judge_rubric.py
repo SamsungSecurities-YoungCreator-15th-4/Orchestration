@@ -111,10 +111,233 @@ def test_numeric_consistency_ignores_unitless_ordinals_and_counts():
     assert numeric_consistency(explanations, {})[0] is True
 
 
+def test_numeric_consistency_accepts_cited_evidence_fact_outside_metrics():
+    topic = "거시환경·스트레스 개연성"
+    text = "한국은행은 2026-05-29 기준금리를 2.50%로 유지했습니다."
+    explanations = [{"topic": topic, "text": text, "revision": 0}]
+    citations = [
+        {
+            "claim": topic,
+            "quote": text,
+            "source": "bok_mpd_202605.pdf",
+            "chunk_id": "bok_mpd_202605.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(
+        explanations,
+        METRICS,
+        {AS_OF_DATE},
+        citations,
+    )
+
+    assert passed is True
+    assert "evidence_fact=2" in reason
+
+
+def test_numeric_consistency_rejects_uncited_or_cross_topic_evidence_fact():
+    topic = "거시환경·스트레스 개연성"
+    text = "한국은행은 기준금리를 2.50%로 유지했습니다."
+    explanations = [{"topic": topic, "text": text, "revision": 0}]
+    citations = [
+        {
+            "claim": "세무 참고",
+            "quote": text,
+            "source": "bok_mpd_202605.pdf",
+            "chunk_id": "bok_mpd_202605.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(
+        explanations,
+        METRICS,
+        {AS_OF_DATE},
+        citations,
+    )
+
+    assert passed is False
+    assert "같은 topic의 검증 인용에 없음" in reason
+
+
+def test_numeric_consistency_rejects_number_that_is_only_substring_of_cited_fact():
+    topic = "거시환경·스트레스 개연성"
+    explanations = [{"topic": topic, "text": "시장 참고 금액은 50,000원입니다.", "revision": 0}]
+    citations = [
+        {
+            "claim": topic,
+            "quote": "시장 참고 금액은 150,000원입니다.",
+            "source": "macro.pdf",
+            "chunk_id": "macro.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(explanations, METRICS, {AS_OF_DATE}, citations)
+
+    assert passed is False
+    assert "50,000원가 같은 topic의 검증 인용에 없음" in reason
+
+
+def test_numeric_consistency_accepts_equivalent_cited_currency_units():
+    topic = "거시환경·스트레스 개연성"
+    explanations = [{"topic": topic, "text": "시장 참고 금액은 0.5억원입니다.", "revision": 0}]
+    citations = [
+        {
+            "claim": topic,
+            "quote": "시장 참고 금액은 5,000만원입니다.",
+            "source": "macro.pdf",
+            "chunk_id": "macro.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(explanations, METRICS, {AS_OF_DATE}, citations)
+
+    assert passed is True
+    assert "evidence_fact=1" in reason
+
+
+def test_numeric_consistency_accepts_equivalent_cited_bp_and_percent():
+    topic = "거시환경·스트레스 개연성"
+    explanations = [{"topic": topic, "text": "정책금리 충격은 250bp입니다.", "revision": 0}]
+    citations = [
+        {
+            "claim": topic,
+            "quote": "정책금리 충격은 2.5%입니다.",
+            "source": "macro.pdf",
+            "chunk_id": "macro.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(explanations, METRICS, {AS_OF_DATE}, citations)
+
+    assert passed is True
+    assert "evidence_fact=1" in reason
+
+
+def test_numeric_consistency_rejects_same_number_with_different_unit_dimension():
+    topic = "거시환경·스트레스 개연성"
+    explanations = [{"topic": topic, "text": "참고 금액은 100원입니다.", "revision": 0}]
+    citations = [
+        {
+            "claim": topic,
+            "quote": "참고 비율은 100%입니다.",
+            "source": "macro.pdf",
+            "chunk_id": "macro.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(explanations, METRICS, {AS_OF_DATE}, citations)
+
+    assert passed is False
+    assert "100원가 같은 topic의 검증 인용에 없음" in reason
+
+
+def test_numeric_consistency_does_not_accept_uncited_fact_that_matches_metric_value():
+    topic = "거시환경·스트레스 개연성"
+    explanations = [
+        {
+            "topic": topic,
+            "text": "참고자료의 정책금리는 1.00%입니다.",
+            "revision": 0,
+        }
+    ]
+
+    passed, reason = numeric_consistency(
+        explanations,
+        {"confidence": 0.99},
+        {AS_OF_DATE},
+        [],
+    )
+
+    assert passed is False
+    assert "1.00%가 같은 topic의 검증 인용에 없음" in reason
+
+
+def test_numeric_consistency_does_not_accept_uncited_publication_date_matching_as_of_date():
+    topic = "거시환경·스트레스 개연성"
+    explanations = [
+        {
+            "topic": topic,
+            "text": f"한국은행은 {AS_OF_DATE} 회의에서 정책 방향을 발표했습니다.",
+            "revision": 0,
+        }
+    ]
+
+    passed, reason = numeric_consistency(
+        explanations,
+        METRICS,
+        {AS_OF_DATE},
+        [],
+    )
+
+    assert passed is False
+    assert f"날짜 {AS_OF_DATE}가 같은 topic의 검증 인용에 없음" in reason
+
+
+def test_numeric_consistency_does_not_reclassify_wrong_var_as_evidence_fact():
+    text = f"기준일 {AS_OF_DATE}, 99% 신뢰수준에서 1일 VaR은 4,000만원입니다."
+    explanations = [{"topic": "VaR 해석", "text": text, "revision": 0}]
+    citations = [
+        {
+            "claim": "VaR 해석",
+            "quote": text,
+            "source": "methodology_var_cvar_2026.pdf",
+            "chunk_id": "methodology_var_cvar_2026.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(
+        explanations,
+        METRICS,
+        {AS_OF_DATE},
+        citations,
+    )
+
+    assert passed is False
+    assert "4,000만원가 metrics에 없음" in reason
+
+
+def test_numeric_consistency_does_not_reclassify_wrong_as_of_date_as_evidence_fact():
+    wrong_date = "2026-05-29"
+    text = f"리포트 기준일은 {wrong_date}입니다."
+    explanations = [{"topic": "기준일 및 유의사항", "text": text, "revision": 0}]
+    citations = [
+        {
+            "claim": "기준일 및 유의사항",
+            "quote": text,
+            "source": "methodology_var_cvar_2026.pdf",
+            "chunk_id": "methodology_var_cvar_2026.pdf::0001",
+            "verified": True,
+        }
+    ]
+
+    passed, reason = numeric_consistency(
+        explanations,
+        METRICS,
+        {AS_OF_DATE},
+        citations,
+    )
+
+    assert passed is False
+    assert f"기준 데이터에 없는 날짜 {wrong_date}" in reason
+
+
 def test_hallucination_pass_and_fail_with_chunk_text():
     passing_llm = _AxisLLM(hallucination_passed=True)
-    assert hallucination(_explanations("VaR 설명"), [VERIFIED_CITATION], passing_llm)[0] is True
+    assert hallucination(
+        _explanations("VaR 설명"),
+        [VERIFIED_CITATION],
+        passing_llm,
+        {AS_OF_DATE},
+    )[0] is True
     assert VERIFIED_CITATION["extra"]["chunk_text"] in passing_llm.prompts[0]
+    assert AS_OF_DATE in passing_llm.prompts[0]
 
     failing_llm = _AxisLLM(hallucination_passed=False)
     passed, reason = hallucination(
@@ -206,6 +429,50 @@ def test_judge_eval_normal_e2e_passes_with_fake_llm():
         "prohibited_expression",
     }
     assert all(axis["passed"] for axis in out["judge"]["rubric"].values())
+
+
+def test_old_house_view_adds_non_blocking_freshness_warning():
+    state = _normal_state()
+    route = {
+        "topic": "VaR 설명",
+        "category": "house_view",
+        "evidence_role": "interpretation_reference",
+        "routing_reason": "CVaR 기여도 1위 자산군: 국내주식(domestic_equity)",
+    }
+    state["run_config"]["audit"] = {
+        "llm": {
+            "rag_cite": {
+                "latest": {
+                    "routing_contract": "rag-routing-v1",
+                    "routes": [route],
+                }
+            }
+        }
+    }
+    state["citations"] = [
+        {
+            **VERIFIED_CITATION,
+            "extra": {
+                **VERIFIED_CITATION["extra"],
+                "category": "house_view",
+                "evidence_role": "interpretation_reference",
+                "routing_reason": route["routing_reason"],
+                "published_at": "2025-05-01",
+            },
+        }
+    ]
+
+    out = judge_eval(state, llm=_AxisLLM())
+
+    freshness = next(
+        check
+        for check in out["judge"]["checks"]
+        if check["name"] == "citation_publication_freshness"
+    )
+    assert out["judge"]["passed"] is True
+    assert freshness["passed"] is False
+    assert freshness["required"] is False
+    assert any("최신성 중대 경고" in flag for flag in out["judge"]["manual_review_flags"])
 
 
 def test_judge_retry_limit_exits_with_manual_review_warning():

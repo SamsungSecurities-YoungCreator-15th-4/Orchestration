@@ -31,6 +31,10 @@ def _compact_stress_scenario(name: str | None, result: dict) -> dict:
         "reference": result.get("reference"),
         "loss_krw": result.get("loss_krw"),
         "loss_pct": result.get("loss_pct"),
+        "loss_krw_low": result.get("loss_krw_low"),
+        "loss_krw_high": result.get("loss_krw_high"),
+        "loss_pct_low": result.get("loss_pct_low"),
+        "loss_pct_high": result.get("loss_pct_high"),
     }
 
 
@@ -65,20 +69,84 @@ def _stress_summary(stress: dict) -> dict:
         "stress_scenario": worst.get("scenario"),
         "stress_loss_krw": worst.get("loss_krw"),
         "stress_loss_pct": worst.get("loss_pct"),
+        "stress_loss_krw_low": worst.get("loss_krw_low"),
+        "stress_loss_krw_high": worst.get("loss_krw_high"),
+        "stress_loss_pct_low": worst.get("loss_pct_low"),
+        "stress_loss_pct_high": worst.get("loss_pct_high"),
         "stress_scenario_count": len(scenarios),
         "stress_scenarios": scenarios,
     }
 
 
+def _ci_bounds(confidence_interval: dict, horizon: str) -> dict:
+    """부트스트랩 신뢰구간(app.engine.metrics.bootstrap_var_cvar_ci) 값을 꺼낸다.
+
+    엔진이 아직 confidence_interval을 안 주는 경우(구버전 metrics)에도
+    안전하게 None으로 채워, 화면이 점추정치로만 표시되도록 한다.
+    """
+    ci = (confidence_interval or {}).get(horizon) or {}
+    return {
+        "var_krw_low": ci.get("var_krw_low"),
+        "var_krw_high": ci.get("var_krw_high"),
+        "cvar_krw_low": ci.get("cvar_krw_low"),
+        "cvar_krw_high": ci.get("cvar_krw_high"),
+        "var_pct_low": ci.get("var_pct_low"),
+        "var_pct_high": ci.get("var_pct_high"),
+        "cvar_pct_low": ci.get("cvar_pct_low"),
+        "cvar_pct_high": ci.get("cvar_pct_high"),
+    }
+
+
+def _drilldown_summary(drilldown: dict) -> list[dict]:
+    """CVaR 자산군별 기여도(tail_contribution)를 기여도 큰 순으로 정렬한 리스트로 정규화한다.
+
+    엔진이 아직 drilldown을 안 주는 경우(구버전 metrics)에도 빈 리스트로
+    안전하게 처리한다.
+    """
+    krw = (drilldown or {}).get("tail_contribution_krw") or {}
+    pct = (drilldown or {}).get("tail_contribution_pct") or {}
+    rows = [
+        {"asset_class": asset_class, "contribution_krw": value, "contribution_pct": pct.get(asset_class)}
+        for asset_class, value in krw.items()
+    ]
+    rows.sort(key=lambda row: row["contribution_krw"] or 0, reverse=True)
+    return rows
+
+
 def _risk_summary(metrics: dict) -> dict:
     horizons = metrics.get("horizons") or {}
     stress = metrics.get("stress") or {}
+    confidence_interval = metrics.get("confidence_interval") or {}
+    ci_1d = _ci_bounds(confidence_interval, "1d")
+    ci_10d = _ci_bounds(confidence_interval, "10d")
     return {
         "confidence": metrics.get("confidence"),
+        "drilldown": _drilldown_summary(metrics.get("drilldown")),
+        "ci_level": confidence_interval.get("ci_level"),
         "var_1d_krw": (horizons.get("1d") or {}).get("var_krw"),
         "cvar_1d_krw": (horizons.get("1d") or {}).get("cvar_krw"),
+        "var_1d_pct": (horizons.get("1d") or {}).get("var_pct"),
+        "cvar_1d_pct": (horizons.get("1d") or {}).get("cvar_pct"),
+        "var_1d_krw_low": ci_1d["var_krw_low"],
+        "var_1d_krw_high": ci_1d["var_krw_high"],
+        "cvar_1d_krw_low": ci_1d["cvar_krw_low"],
+        "cvar_1d_krw_high": ci_1d["cvar_krw_high"],
+        "var_1d_pct_low": ci_1d["var_pct_low"],
+        "var_1d_pct_high": ci_1d["var_pct_high"],
+        "cvar_1d_pct_low": ci_1d["cvar_pct_low"],
+        "cvar_1d_pct_high": ci_1d["cvar_pct_high"],
         "var_10d_krw": (horizons.get("10d") or {}).get("var_krw"),
         "cvar_10d_krw": (horizons.get("10d") or {}).get("cvar_krw"),
+        "var_10d_pct": (horizons.get("10d") or {}).get("var_pct"),
+        "cvar_10d_pct": (horizons.get("10d") or {}).get("cvar_pct"),
+        "var_10d_krw_low": ci_10d["var_krw_low"],
+        "var_10d_krw_high": ci_10d["var_krw_high"],
+        "cvar_10d_krw_low": ci_10d["cvar_krw_low"],
+        "cvar_10d_krw_high": ci_10d["cvar_krw_high"],
+        "var_10d_pct_low": ci_10d["var_pct_low"],
+        "var_10d_pct_high": ci_10d["var_pct_high"],
+        "cvar_10d_pct_low": ci_10d["cvar_pct_low"],
+        "cvar_10d_pct_high": ci_10d["cvar_pct_high"],
         **_stress_summary(stress),
     }
 
@@ -100,6 +168,29 @@ def _evidence_summary(citations: list[dict]) -> dict:
     }
 
 
+def _methodology_refs(meta_ref, citations: list[dict]) -> list[str]:
+    """엔진 메타와 실제 검증 인용에서 방법론 문서 ID를 결정론적으로 합친다."""
+    refs: set[str] = set()
+    raw_meta_refs = meta_ref if isinstance(meta_ref, (list, tuple, set)) else [meta_ref]
+    for ref in raw_meta_refs:
+        if isinstance(ref, str) and ref.strip():
+            refs.add(ref.strip().removesuffix(".pdf"))
+
+    for citation in citations:
+        if not isinstance(citation, dict) or citation.get("verified") is not True:
+            continue
+        source = citation.get("source")
+        raw_extra = citation.get("extra")
+        extra = raw_extra if isinstance(raw_extra, dict) else {}
+        if not isinstance(source, str) or not source.strip():
+            continue
+        filename = source.strip().rsplit("/", 1)[-1]
+        if extra.get("category") == "methodology" or filename.startswith("methodology_"):
+            refs.add(filename.removesuffix(".pdf"))
+
+    return sorted(refs)
+
+
 def _warnings(state: RiskState, evidence: dict) -> list[str]:
     warnings: list[str] = []
     judge = state.get("judge") or {}
@@ -113,6 +204,70 @@ def _warnings(state: RiskState, evidence: dict) -> list[str]:
     return list(dict.fromkeys(warnings))
 
 
+def _audit_summary(state: RiskState) -> dict:
+    """State에 누적된 모델·프롬프트 감사를 리포트용으로 정규화한다."""
+    run_config = state.get("run_config") or {}
+    raw_observability = run_config.get("observability")
+    observability = raw_observability if isinstance(raw_observability, dict) else {}
+    raw_audit = run_config.get("audit")
+    audit = raw_audit if isinstance(raw_audit, dict) else {}
+    raw_llm_audit = audit.get("llm")
+    llm_audit = raw_llm_audit if isinstance(raw_llm_audit, dict) else {}
+    raw_extraction = state.get("ips_extraction_meta")
+    extraction = raw_extraction if isinstance(raw_extraction, dict) else {}
+    raw_phases = observability.get("phases")
+    phases = raw_phases if isinstance(raw_phases, dict) else {}
+    phase_order = {"input": 0, "analysis": 1}
+    trace_urls = {
+        str(phase): details.get("langsmith_trace_url")
+        for phase, details in sorted(
+            phases.items(),
+            key=lambda item: (
+                phase_order.get(str(item[0]), 2),
+                str(item[0]),
+            ),
+        )
+        if isinstance(details, dict)
+        and isinstance(details.get("langsmith_trace_url"), str)
+        and details["langsmith_trace_url"]
+    }
+
+    model_versions = {
+        "extract_ips": {
+            "deployment": extraction.get("deployment"),
+            "model": extraction.get("response_model") or extraction.get("model"),
+            "api_version": extraction.get("api_version"),
+        }
+    }
+    prompt_hashes = {"extract_ips": extraction.get("prompt_hash")}
+    for component in ("rag_cite", "judge_eval"):
+        raw_component_audit = llm_audit.get(component)
+        component_audit = raw_component_audit if isinstance(raw_component_audit, dict) else {}
+        raw_latest = component_audit.get("latest")
+        latest = raw_latest if isinstance(raw_latest, dict) else {}
+        raw_prompt_hash = latest.get("prompt_hash")
+        prompt_hash = raw_prompt_hash if isinstance(raw_prompt_hash, dict) else {}
+        model_versions[component] = latest.get("model_version") or {
+            "deployment": None,
+            "model": None,
+            "api_version": None,
+        }
+        prompt_hashes[component] = prompt_hash.get("aggregate_sha256")
+
+    return {
+        "trace_id": state.get("trace_id"),
+        "langsmith_trace_url": observability.get("langsmith_trace_url"),
+        "langsmith_trace_urls": trace_urls,
+        "langsmith_project": observability.get("langsmith_project"),
+        "langsmith_privacy": {
+            "hide_inputs": observability.get("hide_inputs") is True,
+            "hide_outputs": observability.get("hide_outputs") is True,
+        },
+        "model_versions": model_versions,
+        "prompt_hashes": prompt_hashes,
+    }
+
+
 def assemble_report(state: RiskState) -> dict:
     metrics = state.get("metrics") or {}
     meta = metrics.get("meta") or {}
@@ -122,6 +277,7 @@ def assemble_report(state: RiskState) -> dict:
     evidence = _evidence_summary(citations)
     judge = state.get("judge") or {}
     warnings = _warnings(state, evidence)
+    audit_summary = _audit_summary(state)
     report = {
         "title": "재현가능·설명가능 리스크 리포트",
         "as_of_date": run_config.get("as_of_date"),
@@ -149,6 +305,7 @@ def assemble_report(state: RiskState) -> dict:
             "judge_passed": judge.get("passed"),
             "strict_citation_gate": run_config.get("strict_citation_gate") is True,
             "manual_review_required": bool(warnings),
+            **audit_summary,
         },
         "reproducibility": {
             "as_of_date": run_config.get("as_of_date"),
@@ -156,7 +313,7 @@ def assemble_report(state: RiskState) -> dict:
             "computation_hash": meta.get("computation_hash"),
             "method": meta.get("method"),
             "n_observations": meta.get("n_observations"),
-            "methodology_ref": meta.get("methodology_ref"),
+            "methodology_ref": _methodology_refs(meta.get("methodology_ref"), citations),
             "trace_id": state.get("trace_id"),
             "ips_extraction": state.get("ips_extraction_meta") or {},
             "conflict_policy": state.get("conflict_policy") or {},
