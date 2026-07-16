@@ -7,7 +7,7 @@ chromadb==1.5.9
 pydantic==2.12.3
 numpy==2.2.6
 pandas==2.3.3
-pyarrow==22.0.0
+pyarrow==25.0.0
 scipy==1.15.3
 PyYAML==6.0.3
 yfinance==1.5.1
