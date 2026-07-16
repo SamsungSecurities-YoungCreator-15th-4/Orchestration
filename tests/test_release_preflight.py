@@ -110,14 +110,23 @@ def test_prerelease_requirement_pins_detects_pep440_prereleases():
         "example-alpha==2.0.0a1",
         "example-beta==3.0.0b2",
         "example-dev==4.0.0.dev1",
+        "example-preview==4.1.0-preview2",
+        "candidate-local==4.2.0rc1+cpu",
         "stable-rc-name==5.0.0",
+        "pyarrow==15.0.0",
+        "scipy==1.15.3",
+        "stable-cuda==6.0.0+cuda",
+        "stable-abc==7.0.0+abc",
+        "stable-post==8.0.0.post1",
         "unpinned-package>=1.0.0rc1",
     ]
 
     assert prerelease_requirement_pins(requirements) == [
+        "candidate-local==4.2.0rc1+cpu",
         "example-alpha==2.0.0a1",
         "example-beta==3.0.0b2",
         "example-dev==4.0.0.dev1",
+        "example-preview==4.1.0-preview2",
         "langgraph==1.0.10rc1",
     ]
 

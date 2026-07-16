@@ -67,7 +67,7 @@ OFFLINE_ENV_KEYS = (
     "LANGSMITH_API_KEY",
 )
 _PRERELEASE_VERSION_RE = re.compile(
-    r"(?:a|alpha|b|beta|rc|c|pre|preview|dev)\d*(?:$|[.+-])",
+    r"(?<=\d)(?:[._-]?(?:alpha|beta|preview|pre|rc|dev|a|b|c)\d*)(?=$|[.+-])",
     flags=re.IGNORECASE,
 )
 
@@ -123,7 +123,8 @@ def prerelease_requirement_pins(requirements: list[str]) -> list[str]:
             continue
         name, raw_version = requirement.split("==", 1)
         version = raw_version.split(";", 1)[0].strip()
-        if name.strip() and _PRERELEASE_VERSION_RE.search(version):
+        public_version = version.split("+", 1)[0]
+        if name.strip() and _PRERELEASE_VERSION_RE.search(public_version):
             prerelease_pins.append(f"{name.strip()}=={version}")
     return sorted(prerelease_pins)
 
