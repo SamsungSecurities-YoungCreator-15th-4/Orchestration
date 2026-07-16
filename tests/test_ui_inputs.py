@@ -23,7 +23,7 @@ def test_client_and_portfolio_inputs_render_without_exception():
 
     assert not app.exception
     assert len(app.text_area) == 1
-    assert len(app.number_input) == 7  # 포트폴리오 6종 + judge 시연 옵션
+    assert len(app.number_input) == 7  # 포트폴리오 6종 + judge 강제 실패 횟수(시연용)
     assert "IPS 추출 및 PB 검토 요청" in [button.label for button in app.button]
 
 
