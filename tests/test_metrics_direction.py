@@ -387,6 +387,20 @@ def test_autocorrelation_present_in_compute_metrics_meta():
 FAKE_FX_RATE_ASOF = 1350.55
 
 
+@pytest.mark.parametrize("n", [0, -1])
+def test_fetch_real_returns_rejects_non_positive_observation_count(n):
+    """잘못된 관측치 수는 yfinance 호출 전에 명확한 계약 오류로 거부한다."""
+    with pytest.raises(ValueError, match=r"관측치 개수\(n\)는 1 이상"):
+        returns_mod._fetch_real_returns(n=n)
+
+
+@pytest.mark.parametrize("n", [True, 1250.0])
+def test_fetch_real_returns_rejects_non_integer_observation_count(n):
+    """bool과 실수형 관측치 수는 늦은 pandas 오류 대신 즉시 거부한다."""
+    with pytest.raises(TypeError, match=r"관측치 개수\(n\)는 정수"):
+        returns_mod._fetch_real_returns(n=n)
+
+
 def _fake_fetch_real_returns(n, as_of_date, rf_annual):
     idx = pd.bdate_range(end=pd.Timestamp(as_of_date), periods=n)
     df = pd.DataFrame({c: 0.001 for c in ASSET_CLASSES}, index=idx)[ASSET_CLASSES]
