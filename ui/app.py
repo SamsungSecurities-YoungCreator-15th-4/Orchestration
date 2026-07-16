@@ -475,15 +475,16 @@ else:
 
         data_period = risk.get("data_period") or {}
         methodology_ref = risk.get("methodology_ref")
+        n_obs = data_period.get("n_observations")
+        n_obs_text = f" ({n_obs}거래일)" if n_obs is not None else ""
         period_text = (
-            f"{data_period.get('start')} ~ {data_period.get('end')}"
-            f" ({data_period.get('n_observations')}거래일)"
+            f"{data_period.get('start')} ~ {data_period.get('end')}{n_obs_text}"
             if data_period.get("start") and data_period.get("end")
             else "정보 없음"
         )
         methodology_text = f"{methodology_ref}.pdf" if methodology_ref else "정보 없음"
         fx_rate_asof = risk.get("fx_rate_asof")
-        fx_rate_text = f"{fx_rate_asof:,.2f}원" if fx_rate_asof else "정보 없음"
+        fx_rate_text = f"{fx_rate_asof:,.2f}원" if fx_rate_asof is not None else "정보 없음"
         st.markdown(
             '<div style="font-size:0.78rem;font-weight:700;color:#999;'
             'margin:0.6rem 0 0.2rem 0;">산출 근거</div>'
