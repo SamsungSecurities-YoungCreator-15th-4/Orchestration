@@ -185,6 +185,8 @@ def _fetch_real_returns(
       뒤 그래도 남는 선행 결측치만 제거한다 — 단순 dropna는 양쪽 거래소 중 한
       곳만 휴장해도 그 날 전체를 버려 연간 20~25거래일이 손실되기 때문이다.
     """
+    if isinstance(n, bool) or not isinstance(n, int):
+        raise TypeError("관측치 개수(n)는 정수여야 합니다.")
     if n <= 0:
         raise ValueError("관측치 개수(n)는 1 이상이어야 합니다.")
 
