@@ -185,6 +185,9 @@ def _fetch_real_returns(
       뒤 그래도 남는 선행 결측치만 제거한다 — 단순 dropna는 양쪽 거래소 중 한
       곳만 휴장해도 그 날 전체를 버려 연간 20~25거래일이 손실되기 때문이다.
     """
+    if n <= 0:
+        raise ValueError("관측치 개수(n)는 1 이상이어야 합니다.")
+
     import yfinance as yf  # 지연 import — 더미 경로(테스트 기본 경로)는 네트워크 의존성이 없어야 한다.
 
     end = pd.Timestamp(as_of_date or DEFAULT_AS_OF)
