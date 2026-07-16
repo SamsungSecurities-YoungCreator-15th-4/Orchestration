@@ -391,12 +391,18 @@ def verify_index_matches_corpus(
         if expected is None or not isinstance(metadata, dict):
             raise IndexSupplyError("Chroma chunk_id 또는 metadata가 현재 corpus와 다릅니다.")
         comparable_metadata = {
-            key: metadata.get(key)
-            for key in ("source", "category", "char_start", "char_end")
+            "source": metadata.get("source"),
+            "category": metadata.get("category"),
+            "published_at": metadata.get("published_at") or "",
+            "char_start": metadata.get("char_start"),
+            "char_end": metadata.get("char_end"),
         }
         expected_metadata = {
-            key: expected[key]
-            for key in ("source", "category", "char_start", "char_end")
+            "source": expected["source"],
+            "category": expected["category"],
+            "published_at": expected["published_at"] or "",
+            "char_start": expected["char_start"],
+            "char_end": expected["char_end"],
         }
         if document != expected["text"] or comparable_metadata != expected_metadata:
             raise IndexSupplyError("Chroma 본문 또는 metadata가 현재 corpus와 다릅니다.")

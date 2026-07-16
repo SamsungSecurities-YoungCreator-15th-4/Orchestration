@@ -13,11 +13,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import re
 import shutil
 import time
+from datetime import date
+from functools import lru_cache
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -32,6 +35,7 @@ COLLECTION_NAME = "risk_corpus"
 DEFAULT_CORPUS_DIR = "corpus"
 DEFAULT_PERSIST_DIR = "data/chroma"
 CATEGORIES = ("house_view", "macro", "tax", "methodology")
+DEFAULT_RAG_SOURCES_PATH = Path(__file__).resolve().parents[2] / "config" / "rag_sources.json"
 
 # 임베딩: Azure OpenAI text-embedding-3-small (전용 배포명은 .env에서 읽는다)
 EMBEDDING_MODEL = "text-embedding-3-small"
@@ -56,15 +60,57 @@ def make_chunk_id(source: str, index: int) -> str:
     return f"{source}::{index:04d}"
 
 
-def infer_published_at(source: str) -> str:
-    """파일명의 YYYYMM/연도 표기에서 결정론적 발행 기준일을 추정한다.
+@lru_cache(maxsize=None)
+def load_published_at_contract(
+    path: str | Path = DEFAULT_RAG_SOURCES_PATH,
+) -> dict[str, str]:
+    """추적된 source 계약에서 문서별 실제 발행일을 읽고 검증한다."""
+    contract_path = Path(path)
+    try:
+        payload = json.loads(contract_path.read_text(encoding="utf-8"))
+        categories = payload["categories"]
+        raw_dates = payload["published_at"]
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError("RAG source 발행일 계약을 읽을 수 없습니다.") from exc
+    if not isinstance(categories, dict) or not isinstance(raw_dates, dict):
+        raise ValueError("RAG source 발행일 계약 형식이 올바르지 않습니다.")
 
-    코퍼스 원문에는 표준화된 발행일 metadata가 없으므로 월 단위 문서는 해당 월
-    1일, 연도 단위 문서는 해당 연도 1월 1일로 기록한다. 파일명에 연도가 없으면
-    빈 문자열을 반환해 Judge가 누락을 명시적으로 경고할 수 있게 한다.
+    expected_sources = {
+        source
+        for sources in categories.values()
+        if isinstance(sources, list)
+        for source in sources
+        if isinstance(source, str)
+    }
+    if len(expected_sources) != payload.get("source_count") or set(raw_dates) != expected_sources:
+        raise ValueError("RAG source 목록과 발행일 계약이 일치하지 않습니다.")
+
+    published_at: dict[str, str] = {}
+    for source, raw_date in raw_dates.items():
+        if raw_date is None:
+            published_at[source] = ""
+            continue
+        if not isinstance(raw_date, str):
+            raise ValueError("RAG source 발행일은 ISO 날짜 또는 null이어야 합니다.")
+        try:
+            date.fromisoformat(raw_date)
+        except ValueError as exc:
+            raise ValueError("RAG source 발행일은 YYYY-MM-DD 형식이어야 합니다.") from exc
+        published_at[source] = raw_date
+    return published_at
+
+
+def infer_published_at(source: str) -> str:
+    """계약의 실제 발행일을 우선하고, 계약 밖 파일만 파일명에서 추정한다.
+
+    실제 날짜를 확인하지 못한 계약 문서는 빈 문자열을 반환해 Judge가 누락을
+    명시적으로 경고하게 한다. 개발용 계약 밖 파일에는 기존 결정론적 폴백을 유지한다.
     """
     if not isinstance(source, str):
         return ""
+    published_at = load_published_at_contract()
+    if source in published_at:
+        return published_at[source]
     month_match = _SOURCE_YYYYMM_RE.search(source)
     if month_match:
         return f"{month_match.group(1)}-{month_match.group(2)}-01"

@@ -18,6 +18,7 @@ from app.rag.ingest import (
     chunk_text,
     contains_tbd,
     infer_published_at,
+    load_published_at_contract,
     make_chunk_id,
     partition_documents,
 )
@@ -100,9 +101,39 @@ def test_chunk_id_deterministic_format():
 
 
 def test_published_at_is_inferred_deterministically_from_source_name():
-    assert infer_published_at("samsung_equity_202510.pdf") == "2025-10-01"
-    assert infer_published_at("methodology_var_cvar_2026.pdf") == "2026-01-01"
+    assert infer_published_at("samsung_equity_202510.pdf") == "2025-10-29"
+    assert infer_published_at("methodology_var_cvar_2026.pdf") == "2026-07-16"
+    assert infer_published_at("nts_inherit_2026.pdf") == ""
+    assert infer_published_at("untracked_macro_202605.pdf") == "2026-05-01"
     assert infer_published_at("undated.pdf") == ""
+
+
+def test_published_at_contract_covers_all_21_sources():
+    published_at = load_published_at_contract()
+
+    assert published_at == {
+        "samsung_bond_202408.pdf": "2024-08-06",
+        "samsung_bond_202409_check.pdf": "2024-09-19",
+        "samsung_bond_202409_outlook.pdf": "2024-09-30",
+        "samsung_bond_202502.pdf": "2025-02-13",
+        "samsung_equity_202510.pdf": "2025-10-29",
+        "samsung_equity_202511.pdf": "2025-11-26",
+        "bok_framework_2026.pdf": "2025-12-25",
+        "bok_mpd_202601.pdf": "2026-01-15",
+        "bok_mpd_202602.pdf": "2026-02-26",
+        "bok_mpd_202604.pdf": "2026-04-10",
+        "bok_mpd_202605.pdf": "2026-05-28",
+        "fed_fomc_202601.pdf": "2026-01-27",
+        "fed_fomc_202604.pdf": "2026-04-28",
+        "nts_building_2026.pdf": "2026-01-01",
+        "nts_inherit_2026.pdf": "",
+        "nts_sme_2026.pdf": "2026-02-01",
+        "nts_taxguide_2026_vol1.pdf": "2026-05-01",
+        "nts_taxguide_2026_vol2.pdf": "2026-05-01",
+        "nts_taxguide_2026_vol2_errata.pdf": "2026-05-01",
+        "methodology_stress_2026.pdf": "2026-07-16",
+        "methodology_var_cvar_2026.pdf": "2026-07-16",
+    }
 
 
 def test_chunk_text_deterministic_and_metadata():
