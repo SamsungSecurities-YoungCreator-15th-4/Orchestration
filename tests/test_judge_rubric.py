@@ -349,6 +349,21 @@ def test_hallucination_pass_and_fail_with_chunk_text():
     assert "hallucination 실패" in reason
 
 
+def test_hallucination_ignores_non_dict_extra_without_crashing():
+    for malformed_extra in ("not-a-dict", None):
+        citation = {**VERIFIED_CITATION, "extra": malformed_extra}
+        llm = _AxisLLM(hallucination_passed=True)
+
+        passed, _reason = hallucination(
+            _explanations("VaR 설명"),
+            [citation],
+            llm,
+        )
+
+        assert passed is True
+        assert '"chunk_text": ""' in llm.prompts[0]
+
+
 def test_false_precision_pass_and_fail():
     passing_llm = _AxisLLM(precision_passed=True)
     assert false_precision(

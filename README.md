@@ -87,6 +87,8 @@ RUN_AZURE_JUDGE_EVALSET=1 pytest tests/test_judge_eval_evalset.py
 - Streamlit 배포에는 private Azure Blob의 검증된 Chroma 아티팩트를 사용한다.
   생성·업로드·Secrets 설정은
   [`docs/rag_index_deployment.md`](docs/rag_index_deployment.md)를 따른다.
+- Community Cloud의 저장소·Python·Secrets·운영 확인 절차는
+  [`docs/streamlit_deployment.md`](docs/streamlit_deployment.md)를 따른다.
 - 제출·시연 기본값으로 `config/config.yaml`의 `strict_citation_gate=true`를 유지한다.
 - 실제 배포 E2E는 `python scripts/preflight_release.py --real`로 4개 RAG category,
   검증 인용, Judge, LangSmith trace까지 함께 점검한다.

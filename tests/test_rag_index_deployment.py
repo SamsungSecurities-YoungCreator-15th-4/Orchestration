@@ -125,15 +125,44 @@ def test_unmanaged_local_index_is_still_checked_against_21_sources(tmp_path: Pat
     assert result.source_count == result.chunk_count == 21
 
 
-def test_blob_url_requires_azure_https_host_and_sas_query():
+def test_blob_url_without_sp_preserves_existing_https_validation():
     _validate_https_url(
-        "https://account.blob.core.windows.net/private/index.zip?sp=r&sig=masked"
+        "https://account.blob.core.windows.net/private/index.zip?download=1"
     )
 
     with pytest.raises(IndexSupplyError, match="read-only SAS"):
         _validate_https_url("https://example.com/index.zip?sig=masked")
     with pytest.raises(IndexSupplyError, match="read-only SAS"):
         _validate_https_url("https://account.blob.core.windows.net/private/index.zip")
+
+
+@pytest.mark.parametrize(
+    ("parameter", "permission"),
+    [("sp", "r"), ("sp", "R"), ("SP", "r")],
+)
+def test_blob_url_accepts_read_only_sas_permission_case_insensitively(
+    parameter: str,
+    permission: str,
+):
+    _validate_https_url(
+        "https://account.blob.core.windows.net/private/index.zip"
+        f"?{parameter}={permission}&sig=masked"
+    )
+
+
+@pytest.mark.parametrize(
+    ("parameter", "permission"),
+    [("sp", "rw"), ("sp", "rl"), ("sp", "RW"), ("SP", "rL")],
+)
+def test_blob_url_rejects_non_read_only_sas_permissions(
+    parameter: str,
+    permission: str,
+):
+    with pytest.raises(IndexSupplyError, match="읽기 전용 SAS만 허용"):
+        _validate_https_url(
+            "https://account.blob.core.windows.net/private/index.zip"
+            f"?{parameter}={permission}&sig=masked"
+        )
 
 
 def test_create_artifact_records_21_pdf_checksums_and_chroma_counts(tmp_path: Path):
