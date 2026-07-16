@@ -183,7 +183,7 @@ def _citation_publication_check(state: RiskState, citations: list[dict]) -> dict
         "detail": (
             f"인용 {len(citations)}건 발행일·house_view 최신성 확인"
             if not warnings
-            else "; ".join(warnings)
+            else ", ".join(warnings)
         ),
     }
 

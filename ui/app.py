@@ -120,6 +120,17 @@ st.markdown(
     }
     .checks-table th.check-col { text-align: center; }
 
+    .basis-table { width: 100%; border-collapse: collapse; }
+    .basis-table td {
+        padding: 0.4rem 0.7rem; font-size: 0.82rem; color: #777;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .basis-table td:first-child { color: #888; width: 30%; }
+
+    [data-testid="stTableStyledTable"] th.col_heading {
+        background: #eaf2ff; color: #0b4fbf;
+    }
+
     .footer-box {
         background: #f6f7f9; border-radius: 10px; padding: 1rem 1.2rem;
         font-size: 0.82rem; color: #555;
@@ -127,6 +138,17 @@ st.markdown(
     .footer-box .mono {
         font-family: "SFMono-Regular", Consolas, monospace;
         color: #333; font-size: 0.8rem; line-height: 1.6;
+    }
+
+    @media print {
+        div[data-testid="stVerticalBlock"]:has(.section-title) {
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+        .footer-box, .checks-table tr, .basis-table tr {
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
     }
     </style>
     """,
@@ -451,11 +473,37 @@ else:
             }
         )
 
+        data_period = risk.get("data_period") or {}
+        methodology_ref = risk.get("methodology_ref")
+        period_text = (
+            f"{data_period.get('start')} ~ {data_period.get('end')}"
+            f" ({data_period.get('n_observations')}거래일)"
+            if data_period.get("start") and data_period.get("end")
+            else "정보 없음"
+        )
+        methodology_text = f"{methodology_ref}.pdf" if methodology_ref else "정보 없음"
+        fx_rate_asof = risk.get("fx_rate_asof")
+        fx_rate_text = f"{fx_rate_asof:,.2f}원" if fx_rate_asof else "정보 없음"
+        st.markdown(
+            '<div style="font-size:0.78rem;font-weight:700;color:#999;'
+            'margin:0.6rem 0 0.2rem 0;">산출 근거</div>'
+            '<table class="basis-table">'
+            f'<tr><td>관측 데이터 기간</td><td>{html.escape(period_text)}</td></tr>'
+            f'<tr><td>적용 환율</td><td>{html.escape(fx_rate_text)}</td></tr>'
+            f'<tr><td>방법론</td><td>{html.escape(methodology_text)}</td></tr>'
+            "</table>",
+            unsafe_allow_html=True,
+        )
+        st.caption("방법론 상세 내용은 아래 '근거(RAG 인용)'의 방법론 인용을 참고하세요.")
+
     drilldown = risk.get("drilldown") or []
     if drilldown:
         with st.container(border=True):
             section_title("CVaR 자산군별 기여도")
-            st.caption("최악 1% 구간에서 각 자산군이 CVaR에 기여한 정도")
+            st.caption(
+                "최악 1% 구간에서 각 자산군이 CVaR에 기여한 정도  \n"
+                "\\+ 손실 위험 증가 / − 손실 위험 완화"
+            )
             st.table(
                 [
                     {

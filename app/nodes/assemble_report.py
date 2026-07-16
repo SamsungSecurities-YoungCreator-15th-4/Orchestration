@@ -117,12 +117,16 @@ def _risk_summary(metrics: dict) -> dict:
     horizons = metrics.get("horizons") or {}
     stress = metrics.get("stress") or {}
     confidence_interval = metrics.get("confidence_interval") or {}
+    meta = metrics.get("meta") or {}
     ci_1d = _ci_bounds(confidence_interval, "1d")
     ci_10d = _ci_bounds(confidence_interval, "10d")
     return {
         "confidence": metrics.get("confidence"),
         "drilldown": _drilldown_summary(metrics.get("drilldown")),
         "ci_level": confidence_interval.get("ci_level"),
+        "data_period": meta.get("data_period"),
+        "fx_rate_asof": meta.get("fx_rate_asof"),
+        "methodology_ref": meta.get("methodology_ref"),
         "var_1d_krw": (horizons.get("1d") or {}).get("var_krw"),
         "cvar_1d_krw": (horizons.get("1d") or {}).get("cvar_krw"),
         "var_1d_pct": (horizons.get("1d") or {}).get("var_pct"),
