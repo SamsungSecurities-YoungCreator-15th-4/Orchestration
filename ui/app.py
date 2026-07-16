@@ -128,7 +128,7 @@ st.markdown(
     .basis-table td:first-child { color: #888; width: 30%; }
 
     [data-testid="stTableStyledTable"] th.col_heading {
-        background: #eaf2ff; color: #0b4fbf;
+        background: #eaf2ff; color: #0b4fbf; white-space: nowrap;
     }
 
     .footer-box {
