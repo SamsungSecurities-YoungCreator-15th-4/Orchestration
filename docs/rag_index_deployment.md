@@ -9,13 +9,13 @@ read-only SAS URL로 공급한다.
 로컬 `corpus/`에 계약된 PDF 21건과 최신 `data/chroma/`가 있는 상태에서 실행한다.
 
 ```bash
-python scripts/package_rag_index.py --index-version 2026-07-15.v1
+python scripts/package_rag_index.py --index-version <YYYY-MM-DD.vN>
 ```
 
 `data/rag-index-artifacts/`에 다음 두 파일이 생성된다.
 
-- `rag-index-2026-07-15.v1.zip`: PDF를 포함하지 않은 Chroma 파일
-- `rag-index-2026-07-15.v1.manifest.json`: 생성시각, 임베딩 모델, 21개 source의
+- `rag-index-<YYYY-MM-DD.vN>.zip`: PDF를 포함하지 않은 Chroma 파일
+- `rag-index-<YYYY-MM-DD.vN>.manifest.json`: 생성시각, 임베딩 모델, 21개 source의
   PDF SHA-256, category별 source/chunk 수, ZIP SHA-256
 
 CLI가 출력한 ZIP SHA-256은 Streamlit secret에 별도로 고정한다. manifest와 ZIP을
@@ -39,7 +39,7 @@ Azure Portal로 진행할 수 있어 별도 Python 패키지는 필요하지 않
 ```toml
 RAG_INDEX_BLOB_URL = "https://<account>.blob.core.windows.net/<container>/<artifact>.zip?<sas>"
 RAG_INDEX_MANIFEST_URL = "https://<account>.blob.core.windows.net/<container>/<manifest>.json?<sas>"
-RAG_INDEX_VERSION = "2026-07-15.v1"
+RAG_INDEX_VERSION = "<YYYY-MM-DD.vN>"
 RAG_INDEX_SHA256 = "<package_rag_index.py가 출력한 64자리 SHA-256>"
 RAG_INDEX_REQUIRED = "true"
 ```
@@ -62,3 +62,22 @@ RAG_INDEX_REQUIRED = "true"
 remote 설정이 없고 `data/chroma/`가 존재하면 기존 로컬 인덱스를 사용한다. 배포
 환경에서는 `RAG_INDEX_REQUIRED=true`로 설정해 remote 값 누락도 즉시 실패시키는
 것을 권장한다.
+
+## 5. 배포 아티팩트 이력
+
+SAS URL과 원본 PDF, Chroma 파일은 저장소에 기록하지 않는다. 아래에는 배포 시
+Streamlit secret과 대조할 수 있는 비민감 메타데이터만 남긴다.
+
+### 2026-07-16.v3
+
+- 상태: Blob 업로드 및 Streamlit 반영 전 배포 후보
+- 임베딩 모델: `text-embedding-3-small`
+- source: 21건
+- chunk: 1,393건
+- ZIP SHA-256: `0192506700fe7a3559efa9235bc4c23c6b67b85da075802ad3af095f7c0cbc3c`
+- 변경 문서: `methodology_stress_2026.pdf`
+  - v2 PDF SHA-256: `1687bac2c99948d2fcd8fdc661d1db68d0649e4e3311dc761811ca57c9423ff0`
+  - v3 PDF SHA-256: `d0710c9a36c94553ce70f832df4abc87c6fcdc10436c807f7f74792251ff9213`
+- 유지 문서: `methodology_var_cvar_2026.pdf`
+  - PDF SHA-256: `57f2aecad9c7e6159e00083979f3f2398edc0ef303de64aa61331b8db2826a05`
+- 검증 결과: ZIP 무결성, 21개 source, 4개 category, 1,393개 chunk 계약 통과

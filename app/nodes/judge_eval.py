@@ -241,7 +241,7 @@ def _build_checks(state: RiskState) -> list[dict]:
             "name": "verified_citations_present",
             "passed": bool(verified),
             "required": strict_citation_gate,
-            "detail": f"검증 통과 인용 {len(verified)}건",
+            "detail": f"인용 구조 확인: 검증 통과 인용 {len(verified)}건",
         },
         {
             "name": "approval_locked",

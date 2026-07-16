@@ -35,6 +35,7 @@ from ui.rag_evidence import (
     group_verified_citations,
 )
 from ui.index_supply import prepare_index_or_stop
+from ui.document_links import document_url
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
@@ -147,6 +148,12 @@ st.markdown(
         overflow-wrap: anywhere;
     }
     .citation-table td:nth-child(2) { word-break: break-all; }
+    .citation-table a.doc-link {
+        color: #1f6feb; text-decoration: none;
+        display: inline-flex; align-items: center; gap: 0.3rem;
+    }
+    .citation-table a.doc-link:hover { text-decoration: underline; }
+    .citation-table .doc-link-icon { flex-shrink: 0; }
     .citation-table th {
         background: #eaf2ff; color: #0b4fbf; border-bottom: 2px solid #ddd;
     }
@@ -253,17 +260,6 @@ DEFAULT_PERCENTAGES = {
     item["asset_class"]: item["weight"] * 100 for item in DUMMY_PORTFOLIO
 }
 
-with st.sidebar:
-    st.header("시연 옵션")
-    force_judge_fail = st.number_input(
-        "judge 강제 실패 횟수", min_value=0, max_value=5, value=0
-    )
-    with_conflict = st.checkbox("IPS 충돌 강제 시연")
-    if st.button("새 상담 시작"):
-        for key in ("pending_graph", "pending_config", "pending_state", "report"):
-            st.session_state.pop(key, None)
-        st.rerun()
-
 report = st.session_state.get("report")
 
 if not report:
@@ -306,6 +302,15 @@ if not report:
             )
         total_pct = sum(percentages.values())
         st.caption(f"현재 합계: {total_pct:g}%")
+
+        with st.expander("시연 옵션"):
+            st.caption("judge 강제 실패 횟수(시연용)")
+            force_judge_fail = st.number_input(
+                "judge 강제 실패 횟수(시연용)",
+                min_value=0, max_value=5, value=0,
+                label_visibility="collapsed",
+            )
+
         prepare_clicked = st.form_submit_button("IPS 추출 및 PB 검토 요청", type="primary")
 
     if prepare_clicked:
@@ -319,10 +324,7 @@ if not report:
             payload = {
                 "raw_input": raw_input,
                 "portfolio": portfolio,
-                "demo_options": {
-                    "force_judge_fail": int(force_judge_fail),
-                    "force_conflict": with_conflict,
-                },
+                "demo_options": {"force_judge_fail": int(force_judge_fail)},
                 "run_config": {"observability": invocation.observability},
             }
             if invocation.trace_id:
@@ -619,11 +621,30 @@ else:
             st.markdown(f"#### {section['title']}")
             if section_citations:
                 rows = citation_table_rows(section_citations)
+
+                _LINK_ICON_SVG = (
+                    '<svg class="doc-link-icon" viewBox="0 0 16 16" width="12" height="12" '
+                    'fill="none" stroke="currentColor" stroke-width="1.6">'
+                    '<path d="M6.5 9.5 14 2M9 2h5v5M13 9v4a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4"/>'
+                    "</svg>"
+                )
+
+                def _source_cell(source: str) -> str:
+                    escaped = html.escape(source)
+                    url = document_url(source)
+                    if not url:
+                        return escaped
+                    return (
+                        f'<a class="doc-link" href="{html.escape(url)}" '
+                        f'target="_blank" rel="noopener">{_LINK_ICON_SVG}'
+                        f"{escaped}</a>"
+                    )
+
                 body = "".join(
                     "<tr>"
                     f"<td>{html.escape(str(row.get('설명주제', '-')))}</td>"
                     f"<td>{html.escape(str(row.get('근거문장', '-')))}</td>"
-                    f"<td>{html.escape(str(row.get('출처', '-')))}</td>"
+                    f"<td>{_source_cell(str(row.get('출처', '-')))}</td>"
                     f"<td>{html.escape(str(row.get('발행기준일', '-')))}</td>"
                     "</tr>"
                     for row in rows
