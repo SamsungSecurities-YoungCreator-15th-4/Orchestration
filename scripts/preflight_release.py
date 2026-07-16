@@ -5,6 +5,7 @@ import argparse
 import os
 import subprocess
 import sys
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -95,6 +96,11 @@ def _parse_env_template(path: Path) -> dict[str, str]:
     return values
 
 
+def _parse_toml_template(path: Path) -> dict[str, object]:
+    with path.open("rb") as stream:
+        return tomllib.load(stream)
+
+
 def _gitignore_patterns(path: Path) -> set[str]:
     return {
         line.strip()
@@ -106,7 +112,7 @@ def _gitignore_patterns(path: Path) -> set[str]:
 def streamlit_release_checks(root: Path = ROOT) -> list[CheckResult]:
     """Community Cloud 배포 파일이 재현성·비밀정보 계약을 지키는지 확인한다."""
     template_path = root / ".streamlit" / "secrets.toml.example"
-    template = _parse_env_template(template_path) if template_path.is_file() else {}
+    template = _parse_toml_template(template_path) if template_path.is_file() else {}
     template_keys = set(template)
     missing_keys = sorted(STREAMLIT_SECRET_KEYS - template_keys)
     extra_keys = sorted(template_keys - STREAMLIT_SECRET_KEYS)
@@ -119,7 +125,7 @@ def streamlit_release_checks(root: Path = ROOT) -> list[CheckResult]:
     filled_sensitive = sorted(
         key
         for key in STREAMLIT_SENSITIVE_KEYS
-        if template.get(key) not in (None, '""', "''")
+        if template.get(key) not in (None, "")
     )
     requirements_path = root / "requirements.txt"
     requirements = (

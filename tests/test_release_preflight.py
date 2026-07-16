@@ -11,6 +11,7 @@ from scripts.preflight_release import (
     REQUIRED_GITIGNORE_PATTERNS,
     STREAMLIT_SECRET_KEYS,
     _parse_env_template,
+    _parse_toml_template,
     _gitignore_patterns,
     command_check,
     corpus_pdf_counts,
@@ -42,6 +43,22 @@ def test_parse_env_template_ignores_comments_and_preserves_non_secret_defaults(t
     assert _parse_env_template(template) == {
         "AZURE_OPENAI_API_KEY": "",
         "LANGSMITH_ENDPOINT": "https://apac.api.smith.langchain.com",
+    }
+
+
+def test_parse_toml_template_handles_comments_quotes_and_booleans(tmp_path: Path):
+    template = tmp_path / "secrets.toml.example"
+    template.write_text(
+        '# comment\nAZURE_OPENAI_API_KEY = ""\n'
+        'LANGSMITH_ENDPOINT = "https://apac.api.smith.langchain.com" # region\n'
+        "RAG_INDEX_REQUIRED = true\n",
+        encoding="utf-8",
+    )
+
+    assert _parse_toml_template(template) == {
+        "AZURE_OPENAI_API_KEY": "",
+        "LANGSMITH_ENDPOINT": "https://apac.api.smith.langchain.com",
+        "RAG_INDEX_REQUIRED": True,
     }
 
 
