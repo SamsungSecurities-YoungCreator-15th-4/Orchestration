@@ -17,6 +17,7 @@ from scripts.preflight_release import (
     corpus_pdf_counts,
     local_asset_checks,
     offline_environment,
+    prerelease_requirement_pins,
     static_checks,
     streamlit_release_checks,
 )
@@ -101,6 +102,58 @@ def test_streamlit_release_contract_requires_safe_template_and_pinned_dependenci
     )
 
     assert all(result.status == "PASS" for result in streamlit_release_checks(tmp_path))
+
+
+def test_prerelease_requirement_pins_detects_pep440_prereleases():
+    requirements = [
+        "langgraph==1.0.10rc1",
+        "example-alpha==2.0.0a1",
+        "example-beta==3.0.0b2",
+        "example-dev==4.0.0.dev1",
+        "example-preview==4.1.0-preview2",
+        "candidate-local==4.2.0rc1+cpu",
+        "stable-rc-name==5.0.0",
+        "pyarrow==15.0.0",
+        "scipy==1.15.3",
+        "stable-cuda==6.0.0+cuda",
+        "stable-abc==7.0.0+abc",
+        "stable-post==8.0.0.post1",
+        "unpinned-package>=1.0.0rc1",
+    ]
+
+    assert prerelease_requirement_pins(requirements) == [
+        "candidate-local==4.2.0rc1+cpu",
+        "example-alpha==2.0.0a1",
+        "example-beta==3.0.0b2",
+        "example-dev==4.0.0.dev1",
+        "example-preview==4.1.0-preview2",
+        "langgraph==1.0.10rc1",
+    ]
+
+
+def test_streamlit_release_contract_rejects_prerelease_pin(tmp_path: Path):
+    streamlit_dir = tmp_path / ".streamlit"
+    streamlit_dir.mkdir()
+    values = {key: '""' for key in STREAMLIT_SECRET_KEYS}
+    (streamlit_dir / "secrets.toml.example").write_text(
+        "\n".join(f"{key} = {value}" for key, value in sorted(values.items())),
+        encoding="utf-8",
+    )
+    (tmp_path / "requirements.txt").write_text(
+        "langgraph==1.0.10rc1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / ".gitignore").write_text(
+        ".streamlit/secrets.toml\n",
+        encoding="utf-8",
+    )
+
+    by_name = {
+        result.name: result for result in streamlit_release_checks(tmp_path)
+    }
+
+    assert by_name["Stable dependency pins"].status == "FAIL"
+    assert "langgraph==1.0.10rc1" in by_name["Stable dependency pins"].detail
 
 
 def test_streamlit_release_contract_reports_missing_key_without_false_secret_alert(
