@@ -5,9 +5,13 @@ import argparse
 import os
 import subprocess
 import sys
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # Python 3.10 배포 환경
+    import tomli as tomllib
 
 import yaml
 from dotenv import load_dotenv
