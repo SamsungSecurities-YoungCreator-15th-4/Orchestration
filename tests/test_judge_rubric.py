@@ -75,7 +75,9 @@ def _normal_state() -> dict:
 
 
 def test_source_validity_pass_and_fail():
-    assert source_validity([VERIFIED_CITATION], strict=True)[0] is True
+    passed, reason = source_validity([VERIFIED_CITATION], strict=True)
+    assert passed is True
+    assert reason == "출처 정책 게이트 충족: 검증 통과 인용 1건"
     assert source_validity([], strict=False)[0] is True
     passed, reason = source_validity([], strict=True)
     assert passed is False

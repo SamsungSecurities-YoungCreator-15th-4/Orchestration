@@ -109,7 +109,7 @@ def _case(case_id: str) -> dict:
 
     if case_id == "EC-02":
         state["citations"] = []
-        expected_flags.add("검증 통과 인용 0건")
+        expected_flags.add("인용 구조 확인: 검증 통과 인용 0건")
     elif case_id == "EC-03":
         state["run_config"]["strict_citation_gate"] = True
         state["citations"] = []

@@ -87,6 +87,9 @@ def test_judge_passes_required_checks_with_verified_citation(monkeypatch):
     assert out["judge"]["score"] == 1.0
     assert out["judge_feedback"] == ""
     assert all(check["passed"] for check in out["judge"]["checks"])
+    details = {check["name"]: check["detail"] for check in out["judge"]["checks"]}
+    assert details["verified_citations_present"] == "인용 구조 확인: 검증 통과 인용 1건"
+    assert details["source_validity"] == "출처 정책 게이트 충족: 검증 통과 인용 1건"
 
 
 def test_judge_fails_when_computation_hash_missing(monkeypatch):
@@ -145,7 +148,9 @@ def test_judge_empty_citations_passes_with_manual_review_flag(monkeypatch):
 
     assert out["judge"]["passed"] is True
     assert out["judge"]["score"] < 1.0
-    assert out["judge"]["manual_review_flags"] == ["검증 통과 인용 0건"]
+    assert out["judge"]["manual_review_flags"] == [
+        "인용 구조 확인: 검증 통과 인용 0건"
+    ]
 
 
 def test_judge_strict_citation_gate_rejects_empty_citations(monkeypatch):
