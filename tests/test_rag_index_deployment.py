@@ -23,7 +23,7 @@ from app.rag.deployment import (
     sha256_file,
     validate_manifest,
 )
-from app.rag.ingest import COLLECTION_NAME
+from app.rag.ingest import COLLECTION_NAME, infer_published_at
 import ui.index_supply as index_supply
 from ui.index_supply import prepare_index_or_stop
 
@@ -55,6 +55,7 @@ def _build_index_and_corpus(tmp_path: Path) -> tuple[Path, Path]:
                     "source": source,
                     "category": category,
                     "chunk_id": ids[-1],
+                    "published_at": infer_published_at(source),
                     "char_start": 0,
                     "char_end": len(document),
                 }
@@ -232,6 +233,32 @@ def test_create_artifact_rejects_stale_index_for_current_pdf(tmp_path: Path):
                 if path.name == "bok_framework_2026.pdf"
                 else f"근거 본문 {path.name}"
             ),
+        )
+
+
+def test_create_artifact_rejects_stale_published_at_metadata(tmp_path: Path):
+    from chromadb import PersistentClient
+
+    persist_dir, corpus_dir = _build_index_and_corpus(tmp_path)
+    client = PersistentClient(path=str(persist_dir))
+    try:
+        collection = client.get_collection(COLLECTION_NAME)
+        chunk_id = "bok_framework_2026.pdf::0000"
+        stored = collection.get(ids=[chunk_id], include=["metadatas"])
+        metadata = dict(stored["metadatas"][0])
+        metadata["published_at"] = "2026-01-01"
+        collection.update(ids=[chunk_id], metadatas=[metadata])
+    finally:
+        client.close()
+
+    with pytest.raises(IndexSupplyError, match="현재 corpus와 다릅니다"):
+        create_index_artifact(
+            index_version="2026-07-15.v1",
+            persist_dir=persist_dir,
+            corpus_dir=corpus_dir,
+            output_dir=tmp_path / "artifacts",
+            created_at="2026-07-15T12:00:00Z",
+            pdf_text_loader=lambda path: f"근거 본문 {path.name}",
         )
 
 
