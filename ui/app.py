@@ -302,15 +302,16 @@ if not report:
             )
         total_pct = sum(percentages.values())
         st.caption(f"현재 합계: {total_pct:g}%")
-        prepare_clicked = st.form_submit_button("IPS 추출 및 PB 검토 요청", type="primary")
 
-    with st.expander("시연 옵션"):
-        st.caption("judge 강제 실패 횟수(시연용)")
-        force_judge_fail = st.number_input(
-            "judge 강제 실패 횟수(시연용)",
-            min_value=0, max_value=5, value=0,
-            label_visibility="collapsed",
-        )
+        with st.expander("시연 옵션"):
+            st.caption("judge 강제 실패 횟수(시연용)")
+            force_judge_fail = st.number_input(
+                "judge 강제 실패 횟수(시연용)",
+                min_value=0, max_value=5, value=0,
+                label_visibility="collapsed",
+            )
+
+        prepare_clicked = st.form_submit_button("IPS 추출 및 PB 검토 요청", type="primary")
 
     if prepare_clicked:
         try:
