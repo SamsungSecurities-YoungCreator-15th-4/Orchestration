@@ -384,9 +384,29 @@ def test_autocorrelation_present_in_compute_metrics_meta():
 # 파일이 있는지에 기대지 않고, _fetch_real_returns를 스텁으로 바꿔 각자
 # tmp_path에 자기만의 캐시를 만들어 검증한다 — CI·새 클론에서도 네트워크 없이
 # 항상 통과해야 한다.
+FAKE_FX_RATE_ASOF = 1350.55
+
+
+@pytest.mark.parametrize("n", [0, -1])
+def test_fetch_real_returns_rejects_non_positive_observation_count(n):
+    """잘못된 관측치 수는 yfinance 호출 전에 명확한 계약 오류로 거부한다."""
+    with pytest.raises(ValueError, match=r"관측치 개수\(n\)는 1 이상"):
+        returns_mod._fetch_real_returns(n=n)
+
+
+@pytest.mark.parametrize("n", [True, 1250.0])
+def test_fetch_real_returns_rejects_non_integer_observation_count(n):
+    """bool과 실수형 관측치 수는 늦은 pandas 오류 대신 즉시 거부한다."""
+    with pytest.raises(TypeError, match=r"관측치 개수\(n\)는 정수"):
+        returns_mod._fetch_real_returns(n=n)
+
+
 def _fake_fetch_real_returns(n, as_of_date, rf_annual):
     idx = pd.bdate_range(end=pd.Timestamp(as_of_date), periods=n)
-    return pd.DataFrame({c: 0.001 for c in ASSET_CLASSES}, index=idx)[ASSET_CLASSES]
+    df = pd.DataFrame({c: 0.001 for c in ASSET_CLASSES}, index=idx)[ASSET_CLASSES]
+    # 실제 _fetch_real_returns가 공식에 쓴 기준일 환율을 attrs에 싣는 동작을 재현한다.
+    df.attrs["fx_rate_asof"] = FAKE_FX_RATE_ASOF
+    return df
 
 
 def test_load_real_returns_reads_local_cache_offline(tmp_path, monkeypatch):
@@ -616,6 +636,46 @@ def test_var_engine_uses_real_data_by_default(tmp_path, monkeypatch):
     assert meta["data_source"] == "real"
     assert meta["tickers"]["domestic_equity"] == "^KS11"
     assert meta["fx_ticker"] == "KRW=X"
+    assert meta["fx_rate_asof"] == FAKE_FX_RATE_ASOF
+
+
+def test_var_engine_fx_rate_asof_none_for_dummy_path(tmp_path, monkeypatch):
+    """더미 경로는 환율 자체를 쓰지 않으므로 fx_rate_asof가 None이어야 한다."""
+    monkeypatch.setattr(
+        "app.nodes.var_engine.load_returns", _load_returns_with_tmp_cache(tmp_path)
+    )
+    state = {
+        "run_config": {"as_of_date": "2026-07-03", "data_source": "dummy"},
+        "portfolio": PORTFOLIO,
+    }
+    result = var_engine(state)
+    assert result["metrics"]["meta"]["fx_rate_asof"] is None
+
+
+def test_load_real_returns_fx_rate_asof_survives_cache_hit(tmp_path, monkeypatch):
+    """fx_rate_asof는 parquet attrs 유실과 무관하게 캐시 히트 경로에서도 보존된다."""
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", _fake_fetch_real_returns)
+    cache_path = tmp_path / "real.parquet"
+    meta_path = tmp_path / "real.meta.json"
+
+    # 1회차 — 실제 fetch(스텁) 경로.
+    df1 = load_real_returns(n=10, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+    assert df1.attrs.get("fx_rate_asof") == FAKE_FX_RATE_ASOF
+
+    # 2회차 — 캐시 히트 경로(재조회 발생 시 실패시켜 오프라인 보장까지 같이 확인).
+    def fail_if_called(*a, **kw):
+        raise AssertionError("캐시가 있는데도 재조회가 발생했다")
+
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", fail_if_called)
+    df2 = load_real_returns(n=10, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
+    assert df2.attrs.get("fx_rate_asof") == FAKE_FX_RATE_ASOF
+
+
+def test_compute_metrics_echoes_fx_rate_asof():
+    """compute_metrics에 전달한 fx_rate_asof가 meta에 그대로 반영된다."""
+    df = _generate_dummy_returns(n=250, as_of_date="2026-07-03")
+    m = compute_metrics(df, PORTFOLIO, fx_rate_asof=1350.55)
+    assert m["meta"]["fx_rate_asof"] == 1350.55
 
 
 def test_var_engine_real_path_defaults_to_1250_when_lookback_unset(tmp_path, monkeypatch):
