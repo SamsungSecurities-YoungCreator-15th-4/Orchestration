@@ -48,12 +48,16 @@ def var_engine(state: RiskState) -> dict:
         fx_applied = True  # 해외자산은 USD/KRW 환율변동을 명시적으로 결합했다.
         tickers = dict(REAL_ASSET_TICKERS)
         fx_ticker = FX_TICKER
+        # 공식(r_KRW = (1+r_USD)*(1+r_FX)-1)에 실제로 쓰인 기준일 환율값 —
+        # load_real_returns가 returns_df.attrs에 실어 보낸다(캐시 히트여도 보존).
+        fx_rate_asof = returns_df.attrs.get("fx_rate_asof")
     else:
         n = run_config.get("var_lookback_days") or DEFAULT_N
         returns_df = load_returns(n=n, as_of_date=as_of_date)
         fx_applied = False  # 더미 단계 — 환율 미적용.
         tickers = None
         fx_ticker = None
+        fx_rate_asof = None  # 더미 경로는 환율 자체를 쓰지 않는다.
 
     seed = run_config.get("seed")
     seed = seed if seed is not None else 42
@@ -70,6 +74,7 @@ def var_engine(state: RiskState) -> dict:
         data_source=data_source,
         tickers=tickers,
         fx_ticker=fx_ticker,
+        fx_rate_asof=fx_rate_asof,
         seed=seed,  # VaR/CVaR 신뢰구간(bootstrap)의 재현성 고정 — config.yaml의 seed
     )
     return {"metrics": metrics}

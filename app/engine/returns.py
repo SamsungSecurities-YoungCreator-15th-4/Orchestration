@@ -223,7 +223,17 @@ def _fetch_real_returns(
             f"실데이터 정렬 후 관측치가 부족합니다: {len(returns)}건 (요청 n={n}). "
             "조회 기간을 늘리거나 n을 줄이세요."
         )
-    return returns.tail(n)
+    returns = returns.tail(n)
+    # 공식(r_KRW = (1+r_USD)*(1+r_FX)-1)에 실제로 쓰인 환율의 마지막(기준일) 값을
+    # DataFrame에 실어 보낸다 — 리포트에 "현재 환율: ~~~"로 병기하기 위함.
+    # 반환 스키마(컬럼)는 그대로 유지하면서 부가정보만 attrs에 얹는 방식이라
+    # load_real_returns의 기존 캐시 재사용/테스트 스텁과 호환된다.
+    fx_val = prices["_fx"].loc[returns.index.max()]
+    if isinstance(fx_val, pd.Series):
+        # 인덱스에 중복 날짜가 있으면 .loc이 스칼라 대신 Series를 반환한다.
+        fx_val = fx_val.iloc[-1]
+    returns.attrs["fx_rate_asof"] = float(fx_val)
+    return returns
 
 
 def _validate_cached_real_returns(df: pd.DataFrame, n: int, as_of_date: str | None) -> None:
@@ -297,13 +307,20 @@ def load_real_returns(
 
     if use_cache and cache_path.exists() and meta_path.exists():
         try:
-            cached_request = json.loads(meta_path.read_text(encoding="utf-8"))
-            if cached_request == request:
+            cached_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            # request의 5개 키만 부분일치 검사한다(dict 완전일치가 아님) — meta.json에
+            # fx_rate_asof처럼 request에 없는 부가 키가 섞여 있어도 캐시가 무효화되지
+            # 않게 하기 위함이다(구버전 meta.json과도 그대로 호환).
+            if all(cached_meta.get(k) == v for k, v in request.items()):
                 # 컬럼 선택([ASSET_CLASSES]) 이전의 원본으로 검증해야 예상 밖의
                 # 추가 컬럼(오염된 캐시)도 잡아낼 수 있다.
                 raw_cached = pd.read_parquet(cache_path)
                 _validate_cached_real_returns(raw_cached, n, as_of_date)
-                return raw_cached[ASSET_CLASSES]
+                result = raw_cached[ASSET_CLASSES]
+                # parquet 라운드트립은 DataFrame.attrs를 보존하지 않으므로,
+                # 캐시 히트 경로에서도 sidecar에 저장해둔 값으로 다시 채운다.
+                result.attrs["fx_rate_asof"] = cached_meta.get("fx_rate_asof")
+                return result
         except Exception as e:
             logger.warning("실데이터 캐시 읽기 실패, 재수집합니다: %s (%s)", cache_path, e)
 
@@ -311,7 +328,8 @@ def load_real_returns(
     if use_cache:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(cache_path)
-        meta_path.write_text(json.dumps(request, ensure_ascii=False, indent=2), encoding="utf-8")
+        cached_payload = {**request, "fx_rate_asof": df.attrs.get("fx_rate_asof")}
+        meta_path.write_text(json.dumps(cached_payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return df
 
 
