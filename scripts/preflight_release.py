@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -69,6 +70,10 @@ OFFLINE_ENV_KEYS = (
     "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
     "LANGSMITH_API_KEY",
 )
+_PRERELEASE_VERSION_RE = re.compile(
+    r"(?<=\d)(?:[._-]?(?:alpha|beta|preview|pre|rc|dev|a|b|c)\d*)(?=$|[.+-])",
+    flags=re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -113,6 +118,21 @@ def _gitignore_patterns(path: Path) -> set[str]:
     }
 
 
+def prerelease_requirement_pins(requirements: list[str]) -> list[str]:
+    """정확히 고정된 pip 의존성 중 프리릴리스 버전을 결정론적으로 찾는다."""
+    prerelease_pins: list[str] = []
+    for raw_requirement in requirements:
+        requirement = raw_requirement.split("#", 1)[0].strip()
+        if "==" not in requirement:
+            continue
+        name, raw_version = requirement.split("==", 1)
+        version = raw_version.split(";", 1)[0].strip()
+        public_version = version.split("+", 1)[0]
+        if name.strip() and _PRERELEASE_VERSION_RE.search(public_version):
+            prerelease_pins.append(f"{name.strip()}=={version}")
+    return sorted(prerelease_pins)
+
+
 def streamlit_release_checks(root: Path = ROOT) -> list[CheckResult]:
     """Community Cloud 배포 파일이 재현성·비밀정보 계약을 지키는지 확인한다."""
     template_path = root / ".streamlit" / "secrets.toml.example"
@@ -142,6 +162,7 @@ def streamlit_release_checks(root: Path = ROOT) -> list[CheckResult]:
         else []
     )
     unpinned = [line for line in requirements if "==" not in line]
+    prerelease_pins = prerelease_requirement_pins(requirements)
     gitignore_path = root / ".gitignore"
     ignore_patterns = _gitignore_patterns(gitignore_path) if gitignore_path.is_file() else set()
 
@@ -159,6 +180,15 @@ def streamlit_release_checks(root: Path = ROOT) -> list[CheckResult]:
                 f"직접 의존성 {len(requirements)}개 고정"
                 if requirements and not unpinned
                 else f"미고정={unpinned}"
+            ),
+        ),
+        _result(
+            "Stable dependency pins",
+            not prerelease_pins,
+            (
+                "프리릴리스 고정 0건"
+                if not prerelease_pins
+                else f"프리릴리스 고정={prerelease_pins}"
             ),
         ),
         _result(

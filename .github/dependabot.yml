@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Seoul"
+    target-branch: "develop"
+    open-pull-requests-limit: 5
+    groups:
+      langstack:
+        patterns:
+          - "langchain*"
+          - "langgraph*"
+          - "langsmith"
+    # Dependabot에는 pip 프리릴리스 전역 제외 옵션이 없어 알려진 RC를 명시하고,
+    # 향후 프리릴리스 고정은 release preflight와 CI에서 차단한다.
+    ignore:
+      - dependency-name: "langgraph"
+        versions:
+          - "1.0.10rc1"
+    commit-message:
+      prefix: "chore(deps)"
