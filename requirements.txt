@@ -4,7 +4,7 @@ langchain-openai==1.1.0
 langchain-chroma==1.1.0
 langsmith==0.4.48
 chromadb==1.5.9
-pydantic==2.12.3
+pydantic==2.13.4
 numpy==2.2.6
 pandas==2.3.3
 pyarrow==22.0.0
