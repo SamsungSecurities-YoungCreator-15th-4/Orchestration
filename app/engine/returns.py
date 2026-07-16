@@ -228,7 +228,11 @@ def _fetch_real_returns(
     # DataFrame에 실어 보낸다 — 리포트에 "현재 환율: ~~~"로 병기하기 위함.
     # 반환 스키마(컬럼)는 그대로 유지하면서 부가정보만 attrs에 얹는 방식이라
     # load_real_returns의 기존 캐시 재사용/테스트 스텁과 호환된다.
-    returns.attrs["fx_rate_asof"] = float(prices["_fx"].loc[returns.index.max()])
+    fx_val = prices["_fx"].loc[returns.index.max()]
+    if isinstance(fx_val, pd.Series):
+        # 인덱스에 중복 날짜가 있으면 .loc이 스칼라 대신 Series를 반환한다.
+        fx_val = fx_val.iloc[-1]
+    returns.attrs["fx_rate_asof"] = float(fx_val)
     return returns
 
 
