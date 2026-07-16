@@ -2,7 +2,7 @@ langgraph==1.0.4
 langchain==1.1.0
 langchain-openai==1.1.0
 langchain-chroma==1.1.0
-langsmith==0.4.48
+langsmith==0.8.18
 chromadb==1.5.9
 pydantic==2.12.3
 numpy==2.2.6
