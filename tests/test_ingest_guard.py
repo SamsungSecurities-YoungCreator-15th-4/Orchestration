@@ -1,4 +1,5 @@
 """인덱싱 가드·청킹 결정론 테스트 — 실제 PDF/Azure 불필요(순수 함수 수준)."""
+import json
 import sys
 from pathlib import Path
 
@@ -134,6 +135,70 @@ def test_published_at_contract_covers_all_21_sources():
         "methodology_stress_2026.pdf": "2026-07-16",
         "methodology_var_cvar_2026.pdf": "2026-07-16",
     }
+
+
+def test_published_at_contract_rejects_malformed_json(tmp_path: Path):
+    contract_path = tmp_path / "rag_sources.json"
+    contract_path.write_text('{"source_count": 1,', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="읽을 수 없습니다"):
+        load_published_at_contract(contract_path)
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        (
+            {"source_count": 1, "categories": {"macro": ["doc.pdf"]}},
+            "읽을 수 없습니다",
+        ),
+        (
+            {
+                "source_count": 2,
+                "categories": {"macro": ["doc.pdf"]},
+                "published_at": {"doc.pdf": "2026-01-01"},
+            },
+            "source 목록과 발행일 계약",
+        ),
+        (
+            {
+                "source_count": 1,
+                "categories": {"macro": ["doc.pdf"]},
+                "published_at": {"other.pdf": "2026-01-01"},
+            },
+            "source 목록과 발행일 계약",
+        ),
+        (
+            {
+                "source_count": 1,
+                "categories": {"macro": ["doc.pdf"]},
+                "published_at": {"doc.pdf": 20260101},
+            },
+            "ISO 날짜 또는 null",
+        ),
+        (
+            {
+                "source_count": 1,
+                "categories": {"macro": ["doc.pdf"]},
+                "published_at": {"doc.pdf": "2026-02-30"},
+            },
+            "YYYY-MM-DD",
+        ),
+    ],
+)
+def test_published_at_contract_rejects_invalid_contract(
+    tmp_path: Path,
+    payload: dict,
+    message: str,
+):
+    contract_path = tmp_path / "rag_sources.json"
+    contract_path.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=message):
+        load_published_at_contract(contract_path)
 
 
 def test_chunk_text_deterministic_and_metadata():
