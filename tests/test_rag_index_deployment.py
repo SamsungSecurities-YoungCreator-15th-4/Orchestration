@@ -17,6 +17,7 @@ from app.rag.deployment import (
     _validate_https_url,
     create_index_artifact,
     ensure_deployment_index,
+    inspect_chroma_index,
     load_index_supply_settings,
     load_source_contract,
     sha256_file,
@@ -65,7 +66,44 @@ def _build_index_and_corpus(tmp_path: Path) -> tuple[Path, Path]:
         embeddings=embeddings,
         metadatas=metadatas,
     )
+    client.close()
     return persist_dir, corpus_dir
+
+
+def test_inspect_chroma_index_closes_client_before_return(monkeypatch, tmp_path: Path):
+    """검증 클라이언트를 닫아 Windows의 staging 디렉터리 rename 잠금을 해제한다."""
+    import chromadb
+
+    events: list[str] = []
+
+    class FakeCollection:
+        def get(self, *, include):
+            assert include == ["metadatas"]
+            events.append("get")
+            return {"metadatas": [{"source": "doc.pdf", "category": "methodology"}]}
+
+        def count(self):
+            events.append("count")
+            return 1
+
+    class FakeClient:
+        def __init__(self, *, path: str):
+            assert path == str(tmp_path)
+
+        def get_collection(self, name: str):
+            assert name == COLLECTION_NAME
+            events.append("get_collection")
+            return FakeCollection()
+
+        def close(self):
+            events.append("close")
+
+    monkeypatch.setattr(chromadb, "PersistentClient", FakeClient)
+
+    summary = inspect_chroma_index(tmp_path)
+
+    assert summary["chunk_count"] == 1
+    assert events == ["get_collection", "get", "count", "close"]
 
 
 def _package(tmp_path: Path) -> tuple[Path, Path, dict]:

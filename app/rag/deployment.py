@@ -277,8 +277,14 @@ def inspect_chroma_index(persist_dir: Path) -> dict:
     try:
         from chromadb import PersistentClient
 
-        collection = PersistentClient(path=str(persist_dir)).get_collection(COLLECTION_NAME)
-        stored = collection.get(include=["metadatas"])
+        client = PersistentClient(path=str(persist_dir))
+        try:
+            collection = client.get_collection(COLLECTION_NAME)
+            stored = collection.get(include=["metadatas"])
+            chunk_count = collection.count()
+        finally:
+            # Windows는 열린 SQLite 핸들이 있는 디렉터리의 os.replace를 거부한다.
+            client.close()
     except Exception as exc:
         raise IndexSupplyError("Chroma 컬렉션을 열 수 없습니다.") from exc
     metadatas = stored.get("metadatas") or []
@@ -296,7 +302,7 @@ def inspect_chroma_index(persist_dir: Path) -> dict:
         sources_by_category.setdefault(category, set()).add(source)
         chunks_by_category[category] = chunks_by_category.get(category, 0) + 1
     return {
-        "chunk_count": collection.count(),
+        "chunk_count": chunk_count,
         "sources_by_category": {
             category: tuple(sorted(sources))
             for category, sources in sources_by_category.items()
@@ -367,8 +373,12 @@ def verify_index_matches_corpus(
     try:
         from chromadb import PersistentClient
 
-        collection = PersistentClient(path=str(persist_dir)).get_collection(COLLECTION_NAME)
-        stored = collection.get(include=["documents", "metadatas"])
+        client = PersistentClient(path=str(persist_dir))
+        try:
+            collection = client.get_collection(COLLECTION_NAME)
+            stored = collection.get(include=["documents", "metadatas"])
+        finally:
+            client.close()
     except Exception as exc:
         raise IndexSupplyError("Chroma 원문 청크를 읽을 수 없습니다.") from exc
     ids = stored.get("ids") or []

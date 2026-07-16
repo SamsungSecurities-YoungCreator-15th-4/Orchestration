@@ -67,7 +67,7 @@ def source_validity(citations: list, strict: bool) -> tuple[bool, str]:
         if isinstance(citation, dict) and citation.get("verified") is True
     ]
     if verified:
-        return True, f"검증 통과 인용 {len(verified)}건"
+        return True, f"출처 정책 게이트 충족: 검증 통과 인용 {len(verified)}건"
     if strict:
         return False, "strict citation gate에서 검증 통과 인용이 0건입니다."
     return True, "검증 통과 인용이 0건이므로 수동검토 대상으로 통과합니다."

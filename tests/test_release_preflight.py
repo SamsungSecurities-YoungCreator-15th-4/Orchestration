@@ -295,6 +295,9 @@ def test_local_asset_checks_fail_on_invalid_chroma_metadata(
             assert name
             return FakeCollection()
 
+        def close(self):
+            pass
+
     chromadb = ModuleType("chromadb")
     chromadb.PersistentClient = FakeClient
     monkeypatch.setitem(sys.modules, "chromadb", chromadb)
