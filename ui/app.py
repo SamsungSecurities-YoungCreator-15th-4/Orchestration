@@ -140,12 +140,56 @@ st.markdown(
         color: #333; font-size: 0.8rem; line-height: 1.6;
     }
 
+    .citation-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+    .citation-table th, .citation-table td {
+        padding: 0.6rem 0.8rem; font-size: 0.88rem; line-height: 1.6;
+        border-bottom: 1px solid #eee; text-align: left; vertical-align: top;
+        overflow-wrap: anywhere;
+    }
+    .citation-table td:nth-child(2) { word-break: break-all; }
+    .citation-table th {
+        background: #eaf2ff; color: #0b4fbf; border-bottom: 2px solid #ddd;
+    }
+    .citation-table col.col-topic { width: 15%; }
+    .citation-table col.col-quote { width: 45%; }
+    .citation-table col.col-source { width: 25%; }
+    .citation-table col.col-date { width: 15%; }
+
     @media print {
+        /* 근본 원인: Streamlit은 세로 블록을 display:flex(column)로 그리는데,
+           Chrome 인쇄 엔진은 flex 컨테이너 내부의 페이지 분할을 제대로 못 해
+           자식 요소가 다음 페이지 요소와 겹쳐 그려진다. 인쇄 시에는 일반
+           block 레이아웃으로 되돌려야 break-inside 규칙이 정상 동작한다.
+           단, 모든 stVerticalBlock에 걸면 st.metric 등 내부 컴포넌트가 쓰는
+           flex 간격(라벨-값 수직 배치 등)까지 틀어지므로, 우리가 만든
+           섹션 컨테이너(.section-title을 가진 블록)에만 한정한다. */
         div[data-testid="stVerticalBlock"]:has(.section-title) {
+            display: block;
+        }
+        /* display:block으로 바뀌면 원래 flex의 gap:15px가 무효화되어 요소들이
+           다 붙어버린다 — 직계 자식에 margin-bottom으로 같은 간격을 되살린다. */
+        div[data-testid="stVerticalBlock"]:has(.section-title) > * {
+            margin-bottom: 15px;
+        }
+        div[data-testid="stVerticalBlock"]:has(.section-title) > *:last-child {
+            margin-bottom: 0;
+        }
+        /* 좌우 배치(st.columns)는 block으로 바꾸면 세로로 쌓여 레이아웃이
+           바뀌므로, flex는 유지하되 행 전체가 페이지 중간에서 안 쪼개지게만
+           한다 — 두 타일/지표 정도의 짧은 콘텐츠라 항상 만족 가능하다. */
+        div[data-testid="stHorizontalBlock"] {
             break-inside: avoid;
             page-break-inside: avoid;
         }
-        .footer-box, .checks-table tr, .basis-table tr {
+        /* 짧은 요약 섹션은 통째로 유지한다. 단, checks-table/citation-table처럼
+           한 페이지보다 길어질 수 있는 표를 포함한 섹션에 이 규칙을 걸면
+           불가능한 제약이 되어 인쇄 엔진이 다음 요소(footer-box 등)를
+           표 끝부분과 겹쳐 그리는 버그가 생긴다 — 그런 섹션은 제외한다. */
+        div[data-testid="stVerticalBlock"]:has(.section-title):not(:has(.checks-table)):not(:has(.citation-table)) {
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+        .footer-box, .checks-table tr, .basis-table tr, .citation-table tr {
             break-inside: avoid;
             page-break-inside: avoid;
         }
@@ -574,7 +618,27 @@ else:
             section_citations = grouped_citations[category]
             st.markdown(f"#### {section['title']}")
             if section_citations:
-                st.table(citation_table_rows(section_citations))
+                rows = citation_table_rows(section_citations)
+                body = "".join(
+                    "<tr>"
+                    f"<td>{html.escape(str(row.get('설명주제', '-')))}</td>"
+                    f"<td>{html.escape(str(row.get('근거문장', '-')))}</td>"
+                    f"<td>{html.escape(str(row.get('출처', '-')))}</td>"
+                    f"<td>{html.escape(str(row.get('발행기준일', '-')))}</td>"
+                    "</tr>"
+                    for row in rows
+                )
+                st.markdown(
+                    '<table class="citation-table">'
+                    '<colgroup>'
+                    '<col class="col-topic"><col class="col-quote">'
+                    '<col class="col-source"><col class="col-date">'
+                    "</colgroup>"
+                    "<thead><tr><th>설명주제</th><th>근거문장</th>"
+                    "<th>출처</th><th>발행기준일</th></tr></thead>"
+                    f"<tbody>{body}</tbody></table>",
+                    unsafe_allow_html=True,
+                )
             else:
                 st.caption("해당 역할로 검증된 인용이 없습니다.")
 

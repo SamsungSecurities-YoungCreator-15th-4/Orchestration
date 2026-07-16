@@ -56,10 +56,12 @@ def test_report_renders_four_role_based_rag_sections():
     assert "거시환경·스트레스 근거 [참고용 — 계산 근거 아님]" in markdown
     assert "자산시장 참고자료 [참고용 — 계산 근거 아님]" in markdown
     assert "세무 참고자료 [참고용 — 계산 근거 아님]" in markdown
-    rag_tables = [
-        table.value
-        for table in app.table
-        if list(table.value.columns)
-        == ["설명주제", "근거문장", "출처", "발행기준일"]
+    # 근거문장 칸의 긴 미분리 텍스트가 컬럼 폭을 왜곡하지 않도록 st.table 대신
+    # 폭 고정(colgroup) 커스텀 HTML 표를 쓴다 — AppTest는 이를 markdown으로 노출한다.
+    citation_table_html = [
+        element.value for element in app.markdown
+        if 'class="citation-table"' in element.value
     ]
-    assert len(rag_tables) == 4
+    assert len(citation_table_html) == 4
+    for category in ("methodology", "macro", "house_view", "tax"):
+        assert any(f"{category}_202605.pdf" in html for html in citation_table_html)
