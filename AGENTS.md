@@ -147,6 +147,7 @@ RAG 근거 문서는 `corpus/`에 카테고리별로 둔다. 상세 목록은 [`
 - **재현성**: 노드는 결정론적으로 동작해야 하며(랜덤 시드 고정), 계산 결과에는 computation_hash를 남긴다.
 - **커밋 메시지**: 한국어로, `타입: 설명` 형식. 타입은 `feat`, `fix`, `docs`, `chore`, `refactor`, `test` 중 하나.
   - 예) `feat: 스트레스 시나리오 금리 충격 추가`
+  - `Co-Authored-By`, 모델명, 세션 링크 등 AI 도구 attribution·trailer를 커밋과 PR에 넣지 않는다.
 - **빌드/실행 확인**: 푸시 전 반드시 로컬에서 `python scripts/run_graph.py --auto-approve` 완주와 `pytest` 통과를 확인한다.
 - **덮어쓰기 알림**: 기존 파일을 지우거나 덮어쓰기 전 사용자에게 먼저 알리고 동의를 받는다.
 - **비밀 정보 금지**: `.env` 파일과 모든 비밀키는 절대 커밋하지 않는다. `.env.example`만 추적 대상이다.

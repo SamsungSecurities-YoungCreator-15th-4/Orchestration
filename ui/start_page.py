@@ -18,11 +18,11 @@ _CLEF_B64 = base64.b64encode(
 
 _START_CSS = """
 <style>
-@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css');
 .stApp {
     background: radial-gradient(1300px 900px at 50% 40%,
         #16225F 0%, #0C1447 48%, #070C33 100%);
-    font-family: "Pretendard Variable", Pretendard, sans-serif;
+    font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
 }
 /* 로고 뒤 정적 글로우 (1c: 560px radial, 재현 리스크 없는 무애니메이션) */
 .stApp::before {
@@ -68,7 +68,8 @@ _START_CSS = """
     width: 240px; height: 58px; border: none; border-radius: 29px;
     background: linear-gradient(100deg, #0F5AE0 0%, #3D84FF 100%);
     color: #FFFFFF; font-size: 18px; font-weight: 600;
-    font-family: "Pretendard Variable", Pretendard, sans-serif;
+    font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI",
+        "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
     box-shadow: 0 10px 32px rgba(27, 109, 255, .42);
 }
 [data-testid="stBaseButton-primary"]:hover,
