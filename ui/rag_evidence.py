@@ -5,19 +5,19 @@ from __future__ import annotations
 RAG_EVIDENCE_SECTIONS = (
     {
         "category": "methodology",
-        "title": "정량 계산 방법론 [계산에 직접 사용됨]",
+        "title": "정량 계산 방법론 (연산 반영)",
     },
     {
         "category": "macro",
-        "title": "거시환경·스트레스 근거 [참고용 — 계산 근거 아님]",
+        "title": "거시환경·스트레스 근거 (연산 미반영)",
     },
     {
         "category": "house_view",
-        "title": "자산시장 참고자료 [참고용 — 계산 근거 아님]",
+        "title": "자산시장 참고자료 (연산 미반영)",
     },
     {
         "category": "tax",
-        "title": "세무 참고자료 [참고용 — 계산 근거 아님]",
+        "title": "세무 참고자료 (연산 미반영)",
     },
 )
 

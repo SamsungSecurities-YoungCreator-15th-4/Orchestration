@@ -34,7 +34,7 @@ def prepare_index_or_stop(st_module, *, ensure_index=None):
         except Exception:
             secrets = {}
         settings = load_index_supply_settings(secrets)
-        with st_module.spinner("RAG 근거 인덱스를 확인하는 중..."):
+        with st_module.spinner("분석 근거 및 참고 자료를 확인하고 있습니다..."):
             if ensure_index is not None:
                 return index_preparer(settings=settings)
             return _cached_ensure_index(

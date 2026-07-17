@@ -23,8 +23,26 @@ def test_client_and_portfolio_inputs_render_without_exception():
 
     assert not app.exception
     assert len(app.text_area) == 1
-    assert len(app.number_input) == 7  # 포트폴리오 6종 + judge 강제 실패 횟수(시연용)
-    assert "IPS 추출 및 PB 검토 요청" in [button.label for button in app.button]
+    assert len(app.number_input) == 7  # 포트폴리오 6종 + judge 강제 실패 횟수
+    assert "IPS 추출" in [button.label for button in app.button]
+
+
+def test_pb_approval_hides_candidates_and_authorization_hint():
+    app = AppTest.from_file("ui/app.py")
+    app.session_state["pending_state"] = {
+        "ips": {"Unique": "고금리·강달러 충격"},
+        "portfolio": [],
+        "conflicts": [],
+    }
+
+    app.run(timeout=20)
+
+    assert not app.exception
+    text_input_labels = [field.label for field in app.text_input]
+    assert "PB 이름" in text_input_labels
+    assert "PB 사번" in text_input_labels
+    assert len(app.table) == 0
+    assert not any("승인 권한 PB" in caption.value for caption in app.caption)
 
 
 def test_report_renders_four_role_based_rag_sections():
@@ -52,10 +70,10 @@ def test_report_renders_four_role_based_rag_sections():
 
     assert not app.exception
     markdown = "\n".join(element.value for element in app.markdown)
-    assert "정량 계산 방법론 [계산에 직접 사용됨]" in markdown
-    assert "거시환경·스트레스 근거 [참고용 — 계산 근거 아님]" in markdown
-    assert "자산시장 참고자료 [참고용 — 계산 근거 아님]" in markdown
-    assert "세무 참고자료 [참고용 — 계산 근거 아님]" in markdown
+    assert "정량 계산 방법론" in markdown
+    assert "거시환경·스트레스 근거 (연산 미반영)" in markdown
+    assert "자산시장 참고자료 (연산 미반영)" in markdown
+    assert "세무 참고자료 (연산 미반영)" in markdown
     # 근거문장 칸의 긴 미분리 텍스트가 컬럼 폭을 왜곡하지 않도록 st.table 대신
     # 폭 고정(colgroup) 커스텀 HTML 표를 쓴다 — AppTest는 이를 markdown으로 노출한다.
     citation_table_html = [
