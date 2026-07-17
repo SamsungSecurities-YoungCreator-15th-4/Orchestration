@@ -76,6 +76,7 @@ def test_pb_approval_hides_candidates_and_authorization_hint():
 
 def test_report_renders_four_role_based_rag_sections():
     app = AppTest.from_file("ui/app.py")
+    app.session_state["scroll_report_to_top"] = True
     app.session_state["report"] = {
         "title": "테스트 리스크 리포트",
         "as_of_date": "2026-07-03",
@@ -99,6 +100,7 @@ def test_report_renders_four_role_based_rag_sections():
     app.run(timeout=20)
 
     assert not app.exception
+    assert "scroll_report_to_top" not in app.session_state
     markdown = "\n".join(element.value for element in app.markdown)
     assert "정량 계산 방법론" in markdown
     assert "거시경제 근거" in markdown

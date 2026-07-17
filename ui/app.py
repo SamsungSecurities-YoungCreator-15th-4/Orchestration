@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -742,6 +743,35 @@ DEFAULT_PERCENTAGES = {
     item["asset_class"]: item["weight"] * 100 for item in DUMMY_PORTFOLIO
 }
 
+
+def scroll_report_to_top_once() -> None:
+    """리포트 첫 렌더에서만 Streamlit의 스크롤 보존을 해제한다."""
+    if not st.session_state.pop("scroll_report_to_top", False):
+        return
+    components.html(
+        """
+        <script>
+        (() => {
+          const scrollToTop = () => {
+            const parentWindow = window.parent;
+            const parentDocument = parentWindow.document;
+            const targets = [
+              parentDocument.querySelector('[data-testid="stAppViewContainer"]'),
+              parentDocument.querySelector('section.main'),
+              parentDocument.scrollingElement,
+            ].filter(Boolean);
+            targets.forEach((target) => target.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+            parentWindow.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+          };
+          requestAnimationFrame(scrollToTop);
+          setTimeout(scrollToTop, 100);
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+
 report = st.session_state.get("report")
 
 if not report:
@@ -1060,6 +1090,7 @@ if not report:
                         st.session_state["report"] = graph.get_state(
                             resume_invocation.config
                         ).values.get("report")
+                        st.session_state["scroll_report_to_top"] = True
                         for key in ("pending_graph", "pending_config", "pending_state"):
                             st.session_state.pop(key, None)
                         st.rerun()
@@ -1071,6 +1102,7 @@ report = st.session_state.get("report")
 if not report:
     st.stop()
 else:
+    scroll_report_to_top_once()
     total_value = report["summary"]["portfolio"]["total_value_krw"]
     st.markdown(
         f"""
