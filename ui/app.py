@@ -668,12 +668,13 @@ def basis_table_html(
 ) -> str:
     """산출 근거를 공통 표로 렌더링하고 필요하면 미확인 항목도 유지한다."""
 
-    available = [
-        (label, str(value))
-        for label, value in rows
-        if include_unavailable
-        or (value is not None and str(value).strip() and str(value) != "정보 없음")
-    ]
+    available: list[tuple[str, str]] = []
+    for label, value in rows:
+        value_text = str(value).strip() if value is not None else ""
+        if not value_text:
+            value_text = "정보 없음"
+        if include_unavailable or value_text != "정보 없음":
+            available.append((label, value_text))
     if not available:
         return ""
     body = "".join(
@@ -1313,10 +1314,11 @@ else:
             )
             _stress_methodology_sources = sorted(
                 {
-                    str(citation.get("source")).replace("\\", "/").rsplit("/", 1)[-1]
-                    for citation in grouped_citations["methodology"]
+                    citation.get("source", "").replace("\\", "/").rsplit("/", 1)[-1]
+                    for citation in grouped_citations.get("methodology", [])
                     if isinstance(citation, dict)
-                    and "stress" in str(citation.get("source") or "").lower()
+                    and isinstance(citation.get("source"), str)
+                    and "stress" in citation.get("source", "").lower()
                 }
             )
             _stress_basis_html = basis_table_html(

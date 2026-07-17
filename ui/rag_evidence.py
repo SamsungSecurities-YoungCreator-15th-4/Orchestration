@@ -78,16 +78,22 @@ def replace_citation_indexes(text: object, citations: object) -> str:
     verified_sources: list[str] = []
     if isinstance(citations, list):
         for citation in citations:
+            if not isinstance(citation, dict) or citation.get("verified") is not True:
+                continue
+            quote = citation.get("quote")
+            source = citation.get("source")
+            chunk_id = citation.get("chunk_id")
             if not (
-                isinstance(citation, dict)
-                and citation.get("verified") is True
-                and str(citation.get("quote") or "").strip()
-                and str(citation.get("source") or "").strip()
-                and str(citation.get("chunk_id") or "").strip()
+                isinstance(quote, str)
+                and quote.strip()
+                and isinstance(source, str)
+                and source.strip()
+                and isinstance(chunk_id, str)
+                and chunk_id.strip()
             ):
                 continue
-            source = str(citation["source"]).replace("\\", "/").rsplit("/", 1)[-1]
-            verified_sources.append(source)
+            source_name = source.replace("\\", "/").rsplit("/", 1)[-1]
+            verified_sources.append(source_name)
 
     def _replace(match: re.Match[str]) -> str:
         index = int(match.group("index"))

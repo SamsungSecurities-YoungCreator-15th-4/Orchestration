@@ -107,3 +107,15 @@ def test_freshness_warning_uses_document_names_and_removes_chunk_duplicates():
     assert replace_citation_indexes(warnings[0], citations).startswith(
         "house_view_202605.pdf — 8개월 경과"
     )
+
+
+def test_citation_index_replacement_ignores_malformed_verified_citations():
+    citations = [
+        {"verified": True, "quote": "근거", "source": None, "chunk_id": "chunk-1"},
+        {"verified": True, "quote": 123, "source": "bad.pdf", "chunk_id": "chunk-2"},
+        _citation("house_view"),
+    ]
+
+    assert replace_citation_indexes("#1 house_view 8개월 경과", citations) == (
+        "house_view_202605.pdf — 8개월 경과"
+    )
