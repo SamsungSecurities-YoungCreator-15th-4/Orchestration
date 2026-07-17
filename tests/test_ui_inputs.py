@@ -27,7 +27,7 @@ def test_client_and_portfolio_inputs_render_without_exception():
     assert "IPS 추출 및 PB 검토 요청" in [button.label for button in app.button]
 
 
-def test_pb_approval_renders_name_employee_id_and_authorized_pair():
+def test_pb_approval_hides_candidates_and_authorization_hint():
     app = AppTest.from_file("ui/app.py")
     app.session_state["pending_state"] = {
         "ips": {"Unique": "고금리·강달러 충격"},
@@ -41,7 +41,8 @@ def test_pb_approval_renders_name_employee_id_and_authorized_pair():
     text_input_labels = [field.label for field in app.text_input]
     assert "PB 이름" in text_input_labels
     assert "PB 사번" in text_input_labels
-    assert "승인 권한 PB: 나승민 / 010518" in [caption.value for caption in app.caption]
+    assert len(app.table) == 0
+    assert not any("승인 권한 PB" in caption.value for caption in app.caption)
 
 
 def test_report_renders_four_role_based_rag_sections():

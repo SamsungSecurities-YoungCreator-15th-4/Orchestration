@@ -6,7 +6,6 @@ from ui.pb_approvers import (
     AUTHORIZED_PB,
     PB_CANDIDATES,
     approver_label,
-    candidate_rows,
     validate_pb_approver,
 )
 
@@ -20,7 +19,6 @@ def test_pb_candidate_contract_is_fixed():
         ("최중현", "010726"),
     )
     assert AUTHORIZED_PB == ("나승민", "010518")
-    assert candidate_rows()[2] == {"PB 이름": "나승민", "PB 사번": "010518"}
 
 
 def test_only_authorized_pb_pair_is_accepted():

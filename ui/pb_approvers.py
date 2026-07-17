@@ -15,14 +15,6 @@ _CANDIDATES_DICT = dict(PB_CANDIDATES)
 _KNOWN_IDS = set(_CANDIDATES_DICT.values())
 
 
-def candidate_rows() -> list[dict[str, str]]:
-    """Streamlit 표에 표시할 PB 후보 목록을 반환한다."""
-    return [
-        {"PB 이름": name, "PB 사번": employee_id}
-        for name, employee_id in PB_CANDIDATES
-    ]
-
-
 def validate_pb_approver(name: str | None, employee_id: str | None) -> str | None:
     """입력한 PB가 후보 명단의 유일한 승인 가능 조합인지 검사한다."""
     normalized_name = (name or "").strip()
