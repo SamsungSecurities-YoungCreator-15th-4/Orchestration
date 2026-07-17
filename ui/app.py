@@ -41,11 +41,27 @@ from ui.rag_evidence import (
     citation_table_rows,
     group_verified_citations,
 )
+from ui.start_page import render_start_page
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
 st.set_page_config(page_title="S.ymphony", layout="wide")
+
+# 새 브라우저 세션은 시작 화면을 먼저 거치고, "시작하기" 이후에만 본 화면과
+# 인덱스 공급을 진행한다. 배포 갱신으로 시작 플래그가 사라져도 진행 중이던
+# 세션(pending_state/report 보유)은 시작 화면에 갇히지 않게 통과시킨다.
+if not (
+    st.session_state.get("symphony_started")
+    or st.session_state.get("pending_state")
+    or st.session_state.get("report")
+):
+    if render_start_page():
+        st.session_state["symphony_started"] = True
+        st.rerun()
+    st.stop()
+st.session_state["symphony_started"] = True
+
 prepare_index_or_stop(st)
 
 LOGO_PATH = Path(__file__).resolve().parent / "assets" / "symphony-logo.png"
