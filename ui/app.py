@@ -40,7 +40,7 @@ from ui.document_links import document_url
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
 
-st.set_page_config(page_title="재현가능·설명가능 리스크 리포트 엔진", layout="wide")
+st.set_page_config(page_title="S.ymphony", layout="wide")
 prepare_index_or_stop(st)
 
 st.markdown(
