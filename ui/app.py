@@ -162,6 +162,16 @@ st.markdown(
         border: none !important; background: transparent !important;
         box-shadow: none !important; justify-content: flex-start; gap: 0;
     }
+    /* BaseWeb NumberInput은 Root → InputContainer의 중첩 div에 배경을 넣는다. */
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] div,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] [data-baseweb="input"],
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] [data-baseweb="base-input"] {
+        background: transparent !important; background-color: transparent !important;
+        background-image: none !important; box-shadow: none !important;
+    }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
         [data-testid="stNumberInputContainer"] > div:has(> input) {
         background: transparent !important; box-shadow: none !important;

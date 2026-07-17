@@ -50,6 +50,9 @@ def test_client_and_portfolio_inputs_render_without_exception():
     assert '[data-testid="stBaseButton-primaryFormSubmit"]' in styles
     assert "background: #2563EB !important" in styles
     assert "[data-testid=\"stNumberInputContainer\"] input" in styles
+    assert '[data-testid="stNumberInputContainer"] div' in styles
+    assert "background-color: transparent !important" in styles
+    assert "background-image: none !important" in styles
     assert "IPS 추출" in [button.label for button in app.button]
 
 
