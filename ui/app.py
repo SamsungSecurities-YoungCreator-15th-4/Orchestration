@@ -1,5 +1,4 @@
 """자연어 IPS·포트폴리오 입력부터 PB 승인·리스크 결과까지 제공하는 Streamlit UI."""
-import base64
 import html
 import re
 import sys
@@ -33,6 +32,7 @@ from app.state import (
     FIXED_RISK,
     IPSProfile,
 )
+from ui.branding import logo_markup
 from ui.document_links import document_url
 from ui.index_supply import prepare_index_or_stop
 from ui.pb_approvers import approver_label, validate_pb_approver
@@ -48,7 +48,8 @@ load_dotenv(ROOT / ".env")
 st.set_page_config(page_title="S.ymphony", layout="wide")
 prepare_index_or_stop(st)
 
-LOGO_B64 = base64.b64encode((Path(__file__).parent / "assets" / "symphony-logo.png").read_bytes()).decode()
+LOGO_PATH = Path(__file__).resolve().parent / "assets" / "symphony-logo.png"
+LOGO_MARKUP = logo_markup(LOGO_PATH)
 
 st.markdown(
     """
@@ -65,6 +66,7 @@ st.markdown(
         margin-bottom: 16px;
     }
     .app-topbar img { height: 32px; display: block; }
+    .app-topbar .logo-fallback { color: #1B3B8F; font-size: 24px; font-weight: 800; }
     .app-topbar .divider { width: 1px; height: 30px; background: #E4EAF2; }
     .app-topbar .title { font-size: 15.5px; font-weight: 800; letter-spacing: -0.01em; color: #0F172A; }
 
@@ -655,7 +657,7 @@ if not report:
     st.markdown(
         f"""
         <div class="app-topbar">
-        <img src="data:image/png;base64,{LOGO_B64}" alt="Symphony">
+        {LOGO_MARKUP}
         <div class="divider"></div>
         <div class="title">재현가능·설명가능 리스크 리포트</div>
         </div>
@@ -981,7 +983,7 @@ else:
     st.markdown(
         f"""
         <div class="app-topbar">
-        <img src="data:image/png;base64,{LOGO_B64}" alt="Symphony">
+        {LOGO_MARKUP}
         <div class="divider"></div>
         <div class="title">재현가능·설명가능 리스크 리포트</div>
         </div>
