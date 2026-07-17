@@ -834,9 +834,9 @@ if not report:
             )
             portfolio_rows = [
                 {
-                    "자산군": item.get("name"),
-                    "금액": format_krw(item.get("value_krw")),
-                    "비중": format_pct(item.get("weight")),
+                    "자산군": item["name"],
+                    "금액": format_krw(item["value_krw"]),
+                    "비중": format_pct(item["weight"]),
                 }
                 for item in (pending.get("portfolio") or [])
                 if isinstance(item, dict)
@@ -859,10 +859,10 @@ if not report:
 
             conflicts = pending.get("conflicts") or []
             blocking_conflicts = [
-                conflict for conflict in conflicts if conflict.get("severity") == "block"
+                conflict for conflict in conflicts if conflict["severity"] == "block"
             ]
             review_conflicts = [
-                conflict for conflict in conflicts if conflict.get("severity") == "review"
+                conflict for conflict in conflicts if conflict["severity"] == "review"
             ]
             if conflicts:
                 if blocking_conflicts:
@@ -977,7 +977,7 @@ report = st.session_state.get("report")
 if not report:
     st.stop()
 else:
-    total_value = report.get("summary", {}).get("portfolio", {}).get("total_value_krw")
+    total_value = report["summary"]["portfolio"]["total_value_krw"]
     st.markdown(
         f"""
         <div class="app-topbar">
@@ -991,8 +991,8 @@ else:
 
     risk = report.get("summary", {}).get("risk", {})
     warnings = report.get("warnings") or []
-    _governance = report.get("governance", {})
-    _judge_passed = _governance.get("judge_passed")
+    _governance = report["governance"]
+    _judge_passed = _governance["judge_passed"]
     if _judge_passed and warnings:
         _judge_value, _judge_tone = "조건부 통과 (수동검토 필요)", "kpi-warn"
     elif _judge_passed:
@@ -1034,8 +1034,8 @@ else:
     st.markdown(
         f"""
         <div class="report-hero">
-        <h1>{report.get("title", "재현가능·설명가능 리스크 리포트")}</h1>
-        <p>기준일 {report.get("as_of_date") or "-"} · 포트폴리오 총액 {format_krw(total_value)}</p>
+        <h1>{report["title"]}</h1>
+        <p>기준일 {report["as_of_date"] or "-"} · 포트폴리오 총액 {format_krw(total_value)}</p>
         <div class="kpi-strip">{_kpis}</div>
         </div>
         """,
@@ -1049,6 +1049,34 @@ else:
             _warn_items.extend(
                 s.strip() for s in re.split(r",\s(?=#)", str(w)) if s.strip()
             )
+
+        # "#N"은 judge의 검증 통과 인용 인덱스(1-base) — 같은 기준으로 재구성해
+        # 사용자에게는 인덱스 대신 문서명을 보여준다.
+        def _judge_verified(citation) -> bool:
+            return (
+                isinstance(citation, dict)
+                and citation.get("verified") is True
+                and str(citation.get("quote") or "").strip() != ""
+                and str(citation.get("source") or "").strip() != ""
+                and str(citation.get("chunk_id") or "").strip() != ""
+            )
+
+        _verified_sources = [
+            str(c.get("source")).replace("\\", "/").rsplit("/", 1)[-1]
+            for c in (report.get("citations") or [])
+            if _judge_verified(c)
+        ]
+
+        def _warn_display(item: str) -> str:
+            match = re.match(r"#(\d+)\s+(?:house_view\s+)?(.*)$", item)
+            if not match:
+                return item
+            idx = int(match.group(1))
+            if 1 <= idx <= len(_verified_sources):
+                return f"{_verified_sources[idx - 1]} — {match.group(2)}"
+            return item
+
+        _warn_items = [_warn_display(i) for i in _warn_items]
         with st.container():
             st.markdown('<span class="warn-exp-marker"></span>', unsafe_allow_html=True)
             with st.expander(
@@ -1204,13 +1232,13 @@ else:
                 "\\+ 손실 위험 증가 / − 손실 위험 완화"
             )
             _max_contrib = max(
-                (abs(row.get("contribution_pct") or 0) for row in drilldown), default=0
+                (abs(row["contribution_pct"] or 0) for row in drilldown), default=0
             )
             _dd_rows = "".join(
                 "<tr>"
                 f'<td class="dd-name">{html.escape(ASSET_LABELS.get(row["asset_class"], row["asset_class"]))}</td>'
                 '<td class="dd-bar-cell"><div class="dd-bar">'
-                f'<div style="width:{(abs(row.get("contribution_pct") or 0) / _max_contrib * 100) if _max_contrib else 0:.1f}%;"></div>'
+                f'<div style="width:{(abs(row["contribution_pct"] or 0) / _max_contrib * 100) if _max_contrib else 0:.1f}%;"></div>'
                 "</div></td>"
                 f'<td class="pf-num">{format_krw(row["contribution_krw"])}</td>'
                 f'<td class="pf-num pf-weight">{format_pct(row["contribution_pct"])}</td>'
@@ -1256,13 +1284,13 @@ else:
             st.caption(f"개별 시나리오 비교 (전체 {scenario_count}건)")
             _sc_rows = "".join(
                 "<tr>"
-                f'<td class="sc-name">{html.escape(str(scenario_label(sc.get("scenario"))))}</td>'
+                f'<td class="sc-name">{html.escape(str(scenario_label(sc["scenario"])))}</td>'
                 '<td class="sc-desc">'
-                f'{html.escape(str(sc.get("description") or ""))}'
-                f'<div class="sc-ref">{html.escape(str(sc.get("reference") or ""))}</div>'
+                f'{html.escape(str(sc["description"] or ""))}'
+                f'<div class="sc-ref">{html.escape(str(sc["reference"] or ""))}</div>'
                 "</td>"
-                f'<td class="pf-num">{format_range(sc.get("loss_krw_low"), sc.get("loss_krw_high"), sc.get("loss_krw"))}</td>'
-                f'<td class="pf-num sc-loss">{format_pct_range(sc.get("loss_pct_low"), sc.get("loss_pct_high"), sc.get("loss_pct"))}</td>'
+                f'<td class="pf-num">{format_range(sc["loss_krw_low"], sc["loss_krw_high"], sc["loss_krw"])}</td>'
+                f'<td class="pf-num sc-loss">{format_pct_range(sc["loss_pct_low"], sc["loss_pct_high"], sc["loss_pct"])}</td>'
                 "</tr>"
                 for sc in scenarios
             )
