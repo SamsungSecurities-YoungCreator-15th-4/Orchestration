@@ -745,7 +745,7 @@ DEFAULT_PERCENTAGES = {
 
 
 def scroll_report_to_top_once() -> None:
-    """리포트 첫 렌더에서만 Streamlit의 스크롤 보존을 해제한다."""
+    """리포트 첫 렌더가 안정될 때까지 최상단 위치를 강제로 유지한다."""
     if not st.session_state.pop("scroll_report_to_top", False):
         return
     components.html(
@@ -755,16 +755,38 @@ def scroll_report_to_top_once() -> None:
           const scrollToTop = () => {
             const parentWindow = window.parent;
             const parentDocument = parentWindow.document;
+            const anchor = parentDocument.getElementById('report-page-top');
+            window.frameElement?.scrollIntoView({
+              block: 'start', inline: 'nearest', behavior: 'auto'
+            });
             const targets = [
               parentDocument.querySelector('[data-testid="stAppViewContainer"]'),
+              parentDocument.querySelector('[data-testid="stMain"]'),
               parentDocument.querySelector('section.main'),
               parentDocument.scrollingElement,
+              parentDocument.documentElement,
+              parentDocument.body,
             ].filter(Boolean);
-            targets.forEach((target) => target.scrollTo({ top: 0, left: 0, behavior: 'auto' }));
+            anchor?.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'auto' });
+            targets.forEach((target) => {
+              target.scrollTop = 0;
+              target.scrollLeft = 0;
+              target.scrollTo?.({ top: 0, left: 0, behavior: 'auto' });
+            });
             parentWindow.scrollTo({ top: 0, left: 0, behavior: 'auto' });
           };
+
           requestAnimationFrame(scrollToTop);
-          setTimeout(scrollToTop, 100);
+          [0, 50, 150, 300, 600, 1000, 1600, 2400].forEach((delay) => {
+            setTimeout(scrollToTop, delay);
+          });
+
+          const observer = new MutationObserver(scrollToTop);
+          observer.observe(window.parent.document.body, { childList: true, subtree: true });
+          setTimeout(() => {
+            observer.disconnect();
+            scrollToTop();
+          }, 3000);
         })();
         </script>
         """,
@@ -1102,6 +1124,7 @@ report = st.session_state.get("report")
 if not report:
     st.stop()
 else:
+    st.markdown('<div id="report-page-top" aria-hidden="true"></div>', unsafe_allow_html=True)
     scroll_report_to_top_once()
     total_value = report["summary"]["portfolio"]["total_value_krw"]
     st.markdown(

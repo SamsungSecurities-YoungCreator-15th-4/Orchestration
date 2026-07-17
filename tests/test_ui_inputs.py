@@ -102,6 +102,7 @@ def test_report_renders_four_role_based_rag_sections():
     assert not app.exception
     assert "scroll_report_to_top" not in app.session_state
     markdown = "\n".join(element.value for element in app.markdown)
+    assert 'id="report-page-top"' in markdown
     assert "정량 계산 방법론" in markdown
     assert "거시경제 근거" in markdown
     assert "House View 근거" in markdown
