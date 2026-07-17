@@ -62,6 +62,19 @@ st.markdown(
     .report-header h1 { color: white; margin: 0 0 0.3rem 0; font-size: 1.4rem; }
     .report-header p { color: #dbe7ff; margin: 0; font-size: 0.9rem; }
 
+    .brand-header { padding: 0.4rem 0 1.2rem 0; margin-bottom: 0.4rem; }
+    .brand-header .brand-row {
+        display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.6rem;
+    }
+    .brand-header .wordmark {
+        font-size: 1.6rem; font-weight: 800; color: #1B3B8F; letter-spacing: -0.01em;
+    }
+    .brand-header .wordmark .dot { color: #4D7FE0; }
+    .brand-header .report-subtitle {
+        font-size: 0.95rem; font-weight: 600; color: #444; margin-bottom: 0.3rem;
+    }
+    .brand-header p { color: #777; margin: 0; font-size: 0.85rem; }
+
     .section-title {
         border-left: 4px solid #1f6feb;
         padding-left: 0.6rem;
@@ -220,6 +233,34 @@ SCENARIO_LABELS = {
 
 ASSET_LABELS = dict(ASSET_DEFINITIONS)
 
+LOGO_MARK_SVG = (
+    '<svg viewBox="0 0 120 120" width="34" height="34" '
+    'fill="none" stroke-linecap="round" stroke-linejoin="round">'
+    '<path d="M92,26 C70,8 45,10 42,28 C39,46 62,46 66,60 '
+    'C70,76 50,86 30,78 C18,73 12,66 10,58" '
+    'stroke="#1B3B8F" stroke-width="9"/>'
+    '<path d="M86,34 C68,22 50,26 50,38 C50,50 66,50 68,60 '
+    'C70,72 54,78 40,72" '
+    'stroke="#4D7FE0" stroke-width="9"/>'
+    '<path d="M88,22 L98,14 L92,26 Z" fill="#D9B98A"/>'
+    "</svg>"
+)
+
+WARNING_ICON_SVG = (
+    '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" '
+    'stroke="currentColor" stroke-width="1.6" style="vertical-align:-2px;margin-right:0.3rem;">'
+    '<path d="M8 1.5 15 14.5H1z" stroke-linejoin="round"/>'
+    '<path d="M8 6v3.5" stroke-linecap="round"/><circle cx="8" cy="12" r="0.6" fill="currentColor"/>'
+    "</svg>"
+)
+
+LINK_ICON_SVG = (
+    '<svg class="doc-link-icon" viewBox="0 0 16 16" width="12" height="12" '
+    'fill="none" stroke="currentColor" stroke-width="1.6">'
+    '<path d="M6.5 9.5 14 2M9 2h5v5M13 9v4a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4"/>'
+    "</svg>"
+)
+
 
 def scenario_label(code: str | None) -> str:
     if not code:
@@ -267,20 +308,20 @@ if not report:
     st.markdown(
         """
         <div class="report-header">
-        <h1>고객 상담 및 제안 포트폴리오 입력</h1>
-        <p>자연어 상담에서 IPS를 추출하고 PB 승인 후에만 리스크 연산을 실행합니다.</p>
+        <h1>고객 상담 및 포트폴리오 입력</h1>
+        <p>상담 내역에서 IPS를 추출하고 PB 승인 후에만 계산을 진행합니다.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
     with st.form("client_input"):
-        section_title("1. 고객 자연어 상담")
+        section_title("1. 고객 상담")
         raw_input = st.text_area(
             "상담 내용",
             value=SAMPLE_RAW_INPUT,
             height=150,
-            help="이름·목표 수익 금액·투자기간·세금·유동성·법적 제약 등을 자유롭게 입력하세요. 직업은 자영업자로 고정됩니다.",
+            help="상담 내용을 자유롭게 입력하세요.",
         )
         fixed_cols = st.columns(5)
         fixed_cols[0].text_input("Age", value=FIXED_AGE, disabled=True)
@@ -289,8 +330,8 @@ if not report:
         fixed_cols[3].text_input("Risk", value=FIXED_RISK, disabled=True)
         fixed_cols[4].text_input("Goal", value=FIXED_GOAL, disabled=True)
 
-        section_title("2. 제안 포트폴리오 비중")
-        st.caption("6개 자산군 비중을 퍼센트 단위로 입력하세요. 합계는 100%여야 합니다.")
+        section_title("2. 포트폴리오 비중")
+        st.caption("6개 자산군 비중을 입력해 주세요. (합계 100% 기준)")
         percentages: dict[str, float] = {}
         cols = st.columns(3)
         for idx, (asset_class, name) in enumerate(ASSET_DEFINITIONS):
@@ -305,14 +346,14 @@ if not report:
         st.caption(f"현재 합계: {total_pct:g}%")
 
         with st.expander("시연 옵션"):
-            st.caption("judge 강제 실패 횟수(시연용)")
+            st.caption("judge 강제 실패 횟수")
             force_judge_fail = st.number_input(
-                "judge 강제 실패 횟수(시연용)",
+                "judge 강제 실패 횟수",
                 min_value=0, max_value=5, value=0,
                 label_visibility="collapsed",
             )
 
-        prepare_clicked = st.form_submit_button("IPS 추출 및 PB 검토 요청", type="primary")
+        prepare_clicked = st.form_submit_button("IPS 추출", type="primary")
 
     if prepare_clicked:
         try:
@@ -330,7 +371,7 @@ if not report:
             }
             if invocation.trace_id:
                 payload["trace_id"] = invocation.trace_id
-            with st.spinner("gpt-4o로 IPS를 추출하고 충돌을 검사하는 중..."):
+            with st.spinner("상담 내역 분석 및 IPS 항목 추출 중…"):
                 with tracing_scope(invocation):
                     for _ in graph.stream(
                         payload,
@@ -351,13 +392,19 @@ if not report:
 
     pending = st.session_state.get("pending_state")
     if pending:
-        section_title("3. 추출 IPS 및 PB 승인")
-        st.json(pending.get("ips") or {})
-        st.dataframe(
-            pending.get("portfolio") or [],
-            use_container_width=True,
-            hide_index=True,
-        )
+        section_title("3. IPS 및 PB 승인")
+        ips_rows = [{"항목": key, "값": value} for key, value in (pending.get("ips") or {}).items()]
+        st.dataframe(ips_rows, use_container_width=True, hide_index=True)
+        portfolio_rows = [
+            {
+                "자산군": item.get("name"),
+                "금액": format_krw(item.get("value_krw")),
+                "비중": format_pct(item.get("weight")),
+            }
+            for item in (pending.get("portfolio") or [])
+            if isinstance(item, dict)
+        ]
+        st.dataframe(portfolio_rows, use_container_width=True, hide_index=True)
 
         conflicts = pending.get("conflicts") or []
         blocking_conflicts = [
@@ -379,7 +426,6 @@ if not report:
                 unique_text = st.text_input(
                     "Unique 수정",
                     value=ips.get("Unique", ""),
-                    help="고금리·강달러 충격 문구는 저장 시 항상 맨 앞에 유지됩니다.",
                 )
                 approver_name = st.text_input("PB 이름", placeholder="PB 이름 입력")
                 approver_employee_id = st.text_input(
@@ -394,7 +440,7 @@ if not report:
                         "예외 승인 사유 (필수, 10자 이상)",
                         placeholder="충돌을 인지하고도 리스크 계산이 필요한 이유와 보완 조치를 기록하세요.",
                     )
-                approve_clicked = st.form_submit_button("PB 승인 후 리스크 분석", type="primary")
+                approve_clicked = st.form_submit_button("승인 및 리스크 분석 실행", type="primary")
 
             if approve_clicked:
                 approver_error = validate_pb_approver(
@@ -446,7 +492,7 @@ if not report:
                                 },
                             },
                         )
-                        with st.spinner("승인된 포트폴리오의 리스크를 분석하는 중..."):
+                        with st.spinner("포트폴리오 리스크 연산 및 리포트 생성 중…"):
                             with tracing_scope(resume_invocation):
                                 for _ in graph.stream(
                                     None,
@@ -471,8 +517,9 @@ else:
     total_value = report.get("summary", {}).get("portfolio", {}).get("total_value_krw")
     st.markdown(
         f"""
-        <div class="report-header">
-        <h1>{report.get("title", "재현가능·설명가능 리스크 리포트")}</h1>
+        <div class="brand-header">
+        <div class="brand-row">{LOGO_MARK_SVG}<span class="wordmark">S<span class="dot">.</span>ymphony</span></div>
+        <div class="report-subtitle">{report.get("title", "재현가능·설명가능 리스크 리포트")}</div>
         <p>기준일 {report.get("as_of_date") or "-"} · 포트폴리오 총액 {format_krw(total_value)}</p>
         </div>
         """,
@@ -483,17 +530,17 @@ else:
     if warnings:
         items = "".join(f"<li>{w}</li>" for w in warnings)
         st.markdown(
-            f'<div class="notice-box"><strong>확인 필요</strong><ul style="margin:0.4rem 0 0 1.1rem;">{items}</ul></div>',
+            f'<div class="notice-box"><strong>{WARNING_ICON_SVG}최신 데이터 검토 필요</strong>'
+            f'<ul style="margin:0.4rem 0 0 1.1rem;">{items}</ul></div>',
             unsafe_allow_html=True,
         )
 
     risk = report.get("summary", {}).get("risk", {})
     with st.container(border=True):
         ci_level = risk.get("ci_level")
-        title = "핵심 지표 (VaR / CVaR, 99% 신뢰수준)"
+        section_title("최대 손실 위험 지표 (VaR / CVaR, 신뢰수준 99%)")
         if ci_level is not None:
-            title += f" · {ci_level:.0%} 신뢰구간"
-        section_title(title)
+            st.caption(f"오차 범위 {ci_level:.0%} 신뢰구간 기준")
         st.table(
             {
                 "기간": ["1일", "10일"],
@@ -554,7 +601,7 @@ else:
             "</table>",
             unsafe_allow_html=True,
         )
-        st.caption("방법론 상세 내용은 아래 '근거(RAG 인용)'의 방법론 인용을 참고하세요.")
+        st.caption("방법론 상세 내용은 아래 '분석 근거 및 원문 출처'의 방법론 인용을 참고하세요.")
 
     drilldown = risk.get("drilldown") or []
     if drilldown:
@@ -621,11 +668,11 @@ else:
             )
 
     with st.container(border=True):
-        section_title("근거 (RAG 인용)")
+        section_title("분석 근거 및 원문 출처")
         evidence = report.get("evidence", {})
         e1, e2 = st.columns(2)
-        e1.metric("검증 통과 인용", f"{evidence.get('verified_citation_count', 0)}건")
-        e2.metric("전체 인용", f"{evidence.get('citation_count', 0)}건")
+        e1.metric("유효한 검증 근거", f"{evidence.get('verified_citation_count', 0)}건")
+        e2.metric("전체 참조 자료", f"{evidence.get('citation_count', 0)}건")
 
         grouped_citations = group_verified_citations(report.get("citations") or [])
         for section in RAG_EVIDENCE_SECTIONS:
@@ -635,13 +682,6 @@ else:
             if section_citations:
                 rows = citation_table_rows(section_citations)
 
-                _LINK_ICON_SVG = (
-                    '<svg class="doc-link-icon" viewBox="0 0 16 16" width="12" height="12" '
-                    'fill="none" stroke="currentColor" stroke-width="1.6">'
-                    '<path d="M6.5 9.5 14 2M9 2h5v5M13 9v4a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4"/>'
-                    "</svg>"
-                )
-
                 def _source_cell(source: str) -> str:
                     escaped = html.escape(source)
                     url = document_url(source)
@@ -649,7 +689,7 @@ else:
                         return escaped
                     return (
                         f'<a class="doc-link" href="{html.escape(url)}" '
-                        f'target="_blank" rel="noopener">{_LINK_ICON_SVG}'
+                        f'target="_blank" rel="noopener">{LINK_ICON_SVG}'
                         f"{escaped}</a>"
                     )
 
@@ -668,16 +708,16 @@ else:
                     '<col class="col-topic"><col class="col-quote">'
                     '<col class="col-source"><col class="col-date">'
                     "</colgroup>"
-                    "<thead><tr><th>설명주제</th><th>근거문장</th>"
-                    "<th>출처</th><th>발행기준일</th></tr></thead>"
+                    "<thead><tr><th>주제</th><th>인용 문장</th>"
+                    "<th>출처</th><th>발행일</th></tr></thead>"
                     f"<tbody>{body}</tbody></table>",
                     unsafe_allow_html=True,
                 )
             else:
-                st.caption("해당 역할로 검증된 인용이 없습니다.")
+                st.caption("현재 포트폴리오 조건에 해당하는 인용 정보가 없습니다.")
 
     with st.container(border=True):
-        section_title("품질 검증")
+        section_title("리포트 신뢰성 검증")
         governance = report.get("governance", {})
         judge = report.get("judge", {})
         judge_passed = governance.get("judge_passed")
@@ -700,11 +740,11 @@ else:
 
         t1, t2 = st.columns(2)
         t1.markdown(
-            status_tile("품질 검증", judge_label, judge_tone),
+            status_tile("리포트 신뢰성 검증", judge_label, judge_tone),
             unsafe_allow_html=True,
         )
         t2.markdown(
-            status_tile("근거 검증 방식", "엄격" if gate_on else "표준", "blue" if gate_on else "gray"),
+            status_tile("검증 강도", "엄격" if gate_on else "표준", "blue" if gate_on else "gray"),
             unsafe_allow_html=True,
         )
         st.markdown("<br>", unsafe_allow_html=True)
