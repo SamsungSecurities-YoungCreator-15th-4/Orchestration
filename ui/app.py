@@ -568,10 +568,10 @@ else:
 
         body = "".join(
             "<tr>"
-            f"<td>{html.escape(str(row.get('설명주제', '-')))}</td>"
-            f"<td>{html.escape(str(row.get('근거문장', '-')))}</td>"
-            f"<td>{_source_cell(str(row.get('출처', '-')))}</td>"
-            f"<td>{html.escape(str(row.get('발행기준일', '-')))}</td>"
+            f"<td>{html.escape(str(row['설명주제']))}</td>"
+            f"<td>{html.escape(str(row['근거문장']))}</td>"
+            f"<td>{_source_cell(str(row['출처']))}</td>"
+            f"<td>{html.escape(str(row['발행기준일']))}</td>"
             "</tr>"
             for row in rows
         )
