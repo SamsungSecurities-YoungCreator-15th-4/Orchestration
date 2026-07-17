@@ -1356,25 +1356,23 @@ else:
         checks = judge.get("checks") or []
         if checks:
             rows = "".join(
-            # 바깥을 홑따옴표(')로 감싸고, 내부 HTML 클래스는 쌍따옴표(")로 바로 지정하여 백슬래시 제거
-            f'<tr{"" if c.get("passed") else " class=\'check-row-warn\'"}>'
-            f'<td>{html.escape(str(c.get("detail") or ""))}</td>'
-            f'<td class="check-col">'
-            f'<span class="chk-ico{"" if c.get("passed") else " chk-ico-warn"}">'
-            f'{"✓" if c.get("passed") else "!"}</span></td></tr>'
-            for c in checks
-        )
-        st.markdown(
-            f"""
-            <table class="checks-table">
-            <thead><tr><th>검증 항목</th><th class="check-col">통과 여부</th></tr></thead>
-            <tbody>{rows}</tbody>
-            </table>
-            """,
-            unsafe_allow_html=True,
-        )
-       
-
+                f"""<tr{"" if c.get('passed') else " class='check-row-warn'"}>"""
+                f"""<td>{html.escape(str(c.get('detail') or ''))}</td>"""
+                f"""<td class='check-col'>"""
+                f"""<span class='chk-ico{"" if c.get('passed') else " chk-ico-warn"}'>"""
+                f"""{"✓" if c.get('passed') else "!"}</span></td></tr>"""
+                for c in checks
+            )
+            st.markdown(
+                f"""
+                <table class="checks-table">
+                <thead><tr><th>검증 항목</th><th class="check-col">통과 여부</th></tr></thead>
+                <tbody>{rows}</tbody>
+                </table>
+                """,
+                unsafe_allow_html=True,
+            )
+     
     st.markdown("<br>", unsafe_allow_html=True)
     reproducibility = report.get("reproducibility", {})
     governance = report.get("governance", {})
