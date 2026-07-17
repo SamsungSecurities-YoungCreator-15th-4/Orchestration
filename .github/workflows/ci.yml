@@ -13,6 +13,25 @@ permissions:
   contents: read
 
 jobs:
+  commit-metadata:
+    name: Commit metadata policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reject AI attribution and public session links
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          commit_messages="$(git log --format=%B "${BASE_SHA}..${HEAD_SHA}")"
+          if printf '%s\n' "$commit_messages" \
+            | grep -Eiq '^[[:space:]]*(Co-Authored-By:|Claude-Session:|AI-Model:)|https?://claude\.ai/(code/session_|share/)'; then
+            echo '커밋 메시지에 금지된 AI attribution 또는 세션 링크가 있습니다.' >&2
+            exit 1
+          fi
+
   lint:
     name: Lint (ruff)
     runs-on: ubuntu-latest

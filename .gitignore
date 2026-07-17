@@ -29,4 +29,5 @@ data/rag-index-cache/
 .idea/
 .vscode/
 .DS_Store
-.claude/
+.claude/*
+!.claude/settings.json
