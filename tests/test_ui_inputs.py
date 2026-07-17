@@ -70,7 +70,7 @@ def test_report_renders_four_role_based_rag_sections():
 
     assert not app.exception
     markdown = "\n".join(element.value for element in app.markdown)
-    assert "정량 계산 방법론 (연산 반영)" in markdown
+    assert "정량 계산 방법론" in markdown
     assert "거시환경·스트레스 근거 (연산 미반영)" in markdown
     assert "자산시장 참고자료 (연산 미반영)" in markdown
     assert "세무 참고자료 (연산 미반영)" in markdown

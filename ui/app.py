@@ -153,7 +153,9 @@ st.markdown(
     .footer-box .mono {
         font-family: "SFMono-Regular", Consolas, monospace;
         color: #333; font-size: 0.8rem; line-height: 1.6;
+        word-break: break-all;
     }
+    .footer-box .basis-table td:first-child { width: 22%; }
 
     .citation-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
     .citation-table th, .citation-table td {
@@ -321,7 +323,6 @@ if not report:
             "상담 내용",
             value=SAMPLE_RAW_INPUT,
             height=150,
-            help="상담 내용을 자유롭게 입력하세요.",
         )
         fixed_cols = st.columns(5)
         fixed_cols[0].text_input("Age", value=FIXED_AGE, disabled=True)
@@ -536,6 +537,56 @@ else:
         )
 
     risk = report.get("summary", {}).get("risk", {})
+    grouped_citations = group_verified_citations(report.get("citations") or [])
+
+    def _render_citation_section(section: dict, *, heading_override: str | None = None) -> None:
+        category = section["category"]
+        section_citations = grouped_citations[category]
+        if heading_override is not None:
+            st.markdown(
+                f'<div style="font-size:1.05rem;font-weight:700;color:#1a1a1a;'
+                f'margin:0.6rem 0 0.5rem 0;">{html.escape(heading_override)}</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(f"#### {section['title']}")
+        if not section_citations:
+            st.caption("현재 포트폴리오 조건에 해당하는 인용 정보가 없습니다.")
+            return
+        rows = citation_table_rows(section_citations)
+
+        def _source_cell(source: str) -> str:
+            escaped = html.escape(source)
+            url = document_url(source)
+            if not url:
+                return escaped
+            return (
+                f'<a class="doc-link" href="{html.escape(url)}" '
+                f'target="_blank" rel="noopener">{LINK_ICON_SVG}'
+                f"{escaped}</a>"
+            )
+
+        body = "".join(
+            "<tr>"
+            f"<td>{html.escape(str(row['설명주제']))}</td>"
+            f"<td>{html.escape(str(row['근거문장']))}</td>"
+            f"<td>{_source_cell(str(row['출처']))}</td>"
+            f"<td>{html.escape(str(row['발행기준일']))}</td>"
+            "</tr>"
+            for row in rows
+        )
+        st.markdown(
+            '<table class="citation-table">'
+            '<colgroup>'
+            '<col class="col-topic"><col class="col-quote">'
+            '<col class="col-source"><col class="col-date">'
+            "</colgroup>"
+            "<thead><tr><th>주제</th><th>인용 문장</th>"
+            "<th>출처</th><th>발행일</th></tr></thead>"
+            f"<tbody>{body}</tbody></table>",
+            unsafe_allow_html=True,
+        )
+
     with st.container(border=True):
         ci_level = risk.get("ci_level")
         section_title("최대 손실 위험 지표 (VaR / CVaR, 신뢰수준 99%)")
@@ -601,7 +652,10 @@ else:
             "</table>",
             unsafe_allow_html=True,
         )
-        st.caption("방법론 상세 내용은 아래 '분석 근거 및 원문 출처'의 방법론 인용을 참고하세요.")
+        _methodology_section = next(
+            s for s in RAG_EVIDENCE_SECTIONS if s["category"] == "methodology"
+        )
+        _render_citation_section(_methodology_section, heading_override="정량 계산 방법론")
 
     drilldown = risk.get("drilldown") or []
     if drilldown:
@@ -674,47 +728,10 @@ else:
         e1.metric("유효한 검증 근거", f"{evidence.get('verified_citation_count', 0)}건")
         e2.metric("전체 참조 자료", f"{evidence.get('citation_count', 0)}건")
 
-        grouped_citations = group_verified_citations(report.get("citations") or [])
         for section in RAG_EVIDENCE_SECTIONS:
-            category = section["category"]
-            section_citations = grouped_citations[category]
-            st.markdown(f"#### {section['title']}")
-            if section_citations:
-                rows = citation_table_rows(section_citations)
-
-                def _source_cell(source: str) -> str:
-                    escaped = html.escape(source)
-                    url = document_url(source)
-                    if not url:
-                        return escaped
-                    return (
-                        f'<a class="doc-link" href="{html.escape(url)}" '
-                        f'target="_blank" rel="noopener">{LINK_ICON_SVG}'
-                        f"{escaped}</a>"
-                    )
-
-                body = "".join(
-                    "<tr>"
-                    f"<td>{html.escape(str(row.get('설명주제', '-')))}</td>"
-                    f"<td>{html.escape(str(row.get('근거문장', '-')))}</td>"
-                    f"<td>{_source_cell(str(row.get('출처', '-')))}</td>"
-                    f"<td>{html.escape(str(row.get('발행기준일', '-')))}</td>"
-                    "</tr>"
-                    for row in rows
-                )
-                st.markdown(
-                    '<table class="citation-table">'
-                    '<colgroup>'
-                    '<col class="col-topic"><col class="col-quote">'
-                    '<col class="col-source"><col class="col-date">'
-                    "</colgroup>"
-                    "<thead><tr><th>주제</th><th>인용 문장</th>"
-                    "<th>출처</th><th>발행일</th></tr></thead>"
-                    f"<tbody>{body}</tbody></table>",
-                    unsafe_allow_html=True,
-                )
-            else:
-                st.caption("현재 포트폴리오 조건에 해당하는 인용 정보가 없습니다.")
+            if section["category"] == "methodology":
+                continue
+            _render_citation_section(section)
 
     with st.container(border=True):
         section_title("리포트 신뢰성 검증")
@@ -774,16 +791,32 @@ else:
         if isinstance(methodology_ref, list)
         else str(methodology_ref or "")
     )
+    ips_extraction = reproducibility.get("ips_extraction") or {}
+    ips_extraction_text = (
+        f"모델={ips_extraction.get('model')}, 시드={ips_extraction.get('seed')}, "
+        f"프롬프트 해시={ips_extraction.get('prompt_hash')}"
+        if ips_extraction
+        else "-"
+    )
+    audit_rows = [
+        ("계산 해시", reproducibility.get("computation_hash")),
+        ("설정 해시", reproducibility.get("config_hash")),
+        ("승인 해시", reproducibility.get("approval_hash")),
+        ("방법론 문서", methodology_ref_text),
+        ("IPS 추출 정보", ips_extraction_text),
+        ("추적 ID", reproducibility.get("trace_id")),
+    ]
+    audit_rows_html = "".join(
+        f'<tr><td>{html.escape(str(label))}</td>'
+        f'<td><span class="mono">{html.escape(str(value or "-"))}</span></td></tr>'
+        for label, value in audit_rows
+    )
     st.markdown(
         f"""
         <div class="footer-box">
         {report.get("disclaimer", "")}
         <br><br>
-        <div class="mono">
-        computation_hash: {reproducibility.get('computation_hash')}<br>
-        methodology_ref:&nbsp;&nbsp;{methodology_ref_text}<br>
-        trace_id:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{reproducibility.get('trace_id')}
-        </div>
+        <table class="basis-table">{audit_rows_html}</table>
         </div>
         """,
         unsafe_allow_html=True,
