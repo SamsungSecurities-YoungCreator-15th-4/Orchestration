@@ -154,6 +154,61 @@ def test_published_at_contract_rejects_malformed_json(tmp_path: Path):
         ),
         (
             {
+                "categories": {"macro": ["doc.pdf"]},
+                "published_at": {"doc.pdf": "2026-01-01"},
+            },
+            "읽을 수 없습니다",
+        ),
+        (
+            {
+                "source_count": "1",
+                "categories": {"macro": ["doc.pdf"]},
+                "published_at": {"doc.pdf": "2026-01-01"},
+            },
+            "계약 형식",
+        ),
+        (
+            {
+                "source_count": True,
+                "categories": {"macro": ["doc.pdf"]},
+                "published_at": {"doc.pdf": "2026-01-01"},
+            },
+            "계약 형식",
+        ),
+        (
+            {
+                "source_count": 1,
+                "categories": ["macro", "doc.pdf"],
+                "published_at": {"doc.pdf": "2026-01-01"},
+            },
+            "계약 형식",
+        ),
+        (
+            {
+                "source_count": 1,
+                "categories": {"macro": ["doc.pdf"]},
+                "published_at": ["doc.pdf"],
+            },
+            "계약 형식",
+        ),
+        (
+            {
+                "source_count": 1,
+                "categories": {"macro": "doc.pdf"},
+                "published_at": {"doc.pdf": "2026-01-01"},
+            },
+            "계약 형식",
+        ),
+        (
+            {
+                "source_count": 1,
+                "categories": {"macro": ["doc.pdf", 1]},
+                "published_at": {"doc.pdf": "2026-01-01"},
+            },
+            "계약 형식",
+        ),
+        (
+            {
                 "source_count": 2,
                 "categories": {"macro": ["doc.pdf"]},
                 "published_at": {"doc.pdf": "2026-01-01"},

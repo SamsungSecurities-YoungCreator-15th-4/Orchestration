@@ -70,19 +70,27 @@ def load_published_at_contract(
         payload = json.loads(contract_path.read_text(encoding="utf-8"))
         categories = payload["categories"]
         raw_dates = payload["published_at"]
+        source_count = payload["source_count"]
     except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
         raise ValueError("RAG source 발행일 계약을 읽을 수 없습니다.") from exc
-    if not isinstance(categories, dict) or not isinstance(raw_dates, dict):
+    if (
+        not isinstance(categories, dict)
+        or not isinstance(raw_dates, dict)
+        or isinstance(source_count, bool)
+        or not isinstance(source_count, int)
+    ):
         raise ValueError("RAG source 발행일 계약 형식이 올바르지 않습니다.")
 
-    expected_sources = {
-        source
-        for sources in categories.values()
-        if isinstance(sources, list)
-        for source in sources
-        if isinstance(source, str)
-    }
-    if len(expected_sources) != payload.get("source_count") or set(raw_dates) != expected_sources:
+    expected_sources: set[str] = set()
+    for sources in categories.values():
+        if not isinstance(sources, list):
+            raise ValueError("RAG source 발행일 계약 형식이 올바르지 않습니다.")
+        for source in sources:
+            if not isinstance(source, str):
+                raise ValueError("RAG source 발행일 계약 형식이 올바르지 않습니다.")
+            expected_sources.add(source)
+
+    if len(expected_sources) != source_count or set(raw_dates) != expected_sources:
         raise ValueError("RAG source 목록과 발행일 계약이 일치하지 않습니다.")
 
     published_at: dict[str, str] = {}
