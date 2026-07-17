@@ -162,9 +162,7 @@ def _required_source_chunks(topic: str, chunks: list[dict]) -> list[dict]:
     return [
         chunk
         for chunk in chunks
-        if isinstance(chunk.get("source"), str)
-        and chunk["source"].replace("\\", "/").rsplit("/", 1)[-1]
-        == required_source
+        if chunk["source"].replace("\\", "/").rsplit("/", 1)[-1] == required_source
     ]
 
 
