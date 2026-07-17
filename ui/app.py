@@ -29,13 +29,14 @@ from app.state import (
     FIXED_RISK,
     IPSProfile,
 )
+from ui.document_links import document_url
+from ui.index_supply import prepare_index_or_stop
+from ui.pb_approvers import approver_label, candidate_rows, validate_pb_approver
 from ui.rag_evidence import (
     RAG_EVIDENCE_SECTIONS,
     citation_table_rows,
     group_verified_citations,
 )
-from ui.index_supply import prepare_index_or_stop
-from ui.document_links import document_url
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
@@ -380,7 +381,15 @@ if not report:
                     value=ips.get("Unique", ""),
                     help="고금리·강달러 충격 문구는 저장 시 항상 맨 앞에 유지됩니다.",
                 )
-                approver = st.text_input("PB 승인자", placeholder="PB 이름 또는 사번")
+                st.markdown("**PB 이름 / PB 사번 후보**")
+                st.table(candidate_rows())
+                st.caption("승인 권한 PB: 나승민 / 010518")
+                approver_name = st.text_input("PB 이름", placeholder="PB 이름 입력")
+                approver_employee_id = st.text_input(
+                    "PB 사번",
+                    placeholder="6자리 사번 입력",
+                    max_chars=6,
+                )
                 note = st.text_area("승인 의견", placeholder="검토 의견을 입력하세요.")
                 exception_reason = ""
                 if review_conflicts:
@@ -391,8 +400,12 @@ if not report:
                 approve_clicked = st.form_submit_button("PB 승인 후 리스크 분석", type="primary")
 
             if approve_clicked:
-                if not approver.strip():
-                    st.error("PB 승인자를 입력해야 합니다.")
+                approver_error = validate_pb_approver(
+                    approver_name,
+                    approver_employee_id,
+                )
+                if approver_error:
+                    st.error(approver_error)
                 elif review_conflicts and len(exception_reason.strip()) < 10:
                     st.error("예외 승인 사유를 10자 이상 입력해야 합니다.")
                 else:
@@ -427,7 +440,10 @@ if not report:
                                         if review_conflicts
                                         else "approved"
                                     ),
-                                    "approver": approver.strip(),
+                                    "approver": approver_label(
+                                        approver_name,
+                                        approver_employee_id,
+                                    ),
                                     "note": note.strip(),
                                     "exception_reason": exception_reason.strip(),
                                 },
