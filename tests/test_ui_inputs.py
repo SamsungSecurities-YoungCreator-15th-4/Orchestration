@@ -18,8 +18,35 @@ def _prepared_rag_index(monkeypatch):
     ui.index_supply._cached_ensure_index.clear()
 
 
-def test_client_and_portfolio_inputs_render_without_exception():
+def test_start_page_renders_before_main_inputs():
+    """새 세션은 시작 화면만 보이고, 본 입력 화면은 아직 렌더링되지 않는다."""
     app = AppTest.from_file("ui/app.py").run(timeout=20)
+
+    assert not app.exception
+    markdown = "\n".join(element.value for element in app.markdown)
+    assert "S.ymphony" in markdown
+    assert "재현가능·설명가능 리스크 리포트" in markdown
+    assert "시작하기" in [button.label for button in app.button]
+    assert "IPS 추출" not in [button.label for button in app.button]
+    assert len(app.text_area) == 0
+
+
+def test_start_button_moves_to_main_inputs():
+    app = AppTest.from_file("ui/app.py").run(timeout=20)
+
+    app.button(key="symphony_start").click().run(timeout=20)
+
+    assert not app.exception
+    assert app.session_state["symphony_started"] is True
+    assert "IPS 추출" in [button.label for button in app.button]
+    assert len(app.text_area) == 1
+
+
+def test_client_and_portfolio_inputs_render_without_exception():
+    app = AppTest.from_file("ui/app.py")
+    app.session_state["symphony_started"] = True
+
+    app.run(timeout=20)
 
     assert not app.exception
     assert len(app.text_area) == 1
