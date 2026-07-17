@@ -23,6 +23,7 @@ def test_client_and_portfolio_inputs_render_without_exception():
 
     assert not app.exception
     assert len(app.text_area) == 1
+    assert app.text_area[0].label == "고객 정보"
     assert app.text_area[0].value == ""
     assert len(app.number_input) == 7  # 포트폴리오 6종 + judge 강제 실패 횟수
     portfolio_defaults = {
@@ -44,6 +45,11 @@ def test_client_and_portfolio_inputs_render_without_exception():
     assert '[data-testid="stNumberInputContainer"]::after' in styles
     assert 'content: "%"' in styles
     assert "width: fit-content !important" in styles
+    assert '[data-testid="stAppViewContainer"]' in styles
+    assert "background: #EFF3FA !important" in styles
+    assert '[data-testid="stBaseButton-primaryFormSubmit"]' in styles
+    assert "background: #2563EB !important" in styles
+    assert "[data-testid=\"stNumberInputContainer\"] input" in styles
     assert "IPS 추출" in [button.label for button in app.button]
 
 

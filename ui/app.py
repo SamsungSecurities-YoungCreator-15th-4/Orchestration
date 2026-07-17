@@ -59,6 +59,12 @@ st.markdown(
     [data-testid="stMetricLabel"] { font-size: 0.85rem; }
     table { font-size: 0.9rem; }
 
+    /* 배포 환경의 테마 캐시와 관계없이 앱 바탕은 기존 연파랑을 유지한다. */
+    html, body, .stApp, [data-testid="stAppViewContainer"],
+    [data-testid="stMain"] {
+        background: #EFF3FA !important;
+    }
+
     .app-topbar {
         background: #FFFFFF; border: 1px solid #E4EAF2; border-radius: 16px;
         box-shadow: 0 1px 2px rgba(15,23,42,0.04);
@@ -153,13 +159,20 @@ st.markdown(
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
         [data-testid="stNumberInputContainer"] {
-        border: none; background: transparent; justify-content: flex-start; gap: 0;
+        border: none !important; background: transparent !important;
+        box-shadow: none !important; justify-content: flex-start; gap: 0;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] > div:has(> input) {
+        background: transparent !important; box-shadow: none !important;
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
         [data-testid="stNumberInputContainer"] input {
         font-size: 26px; font-weight: 800; color: #1D4ED8; letter-spacing: -0.01em;
         padding: 0; width: auto; flex: 0 0 auto; height: 36px;
         field-sizing: content; min-width: 1.2em; max-width: 4.5em;
+        border: none !important; background: transparent !important;
+        box-shadow: none !important;
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
         [data-testid="stNumberInputStepDown"],
@@ -198,8 +211,18 @@ st.markdown(
     [data-testid="stExpander"] [data-testid="stNumberInput"] { width: 150px; }
 
     /* 기본(primary) 버튼 — 목업처럼 크고 둥글게 */
-    [data-testid="stBaseButton-primary"] {
+    [data-testid="stBaseButton-primary"],
+    [data-testid="stBaseButton-primaryFormSubmit"],
+    button[kind="primary"], button[kind="primaryFormSubmit"] {
         padding: 0.65rem 1.6rem; border-radius: 10px; font-weight: 700;
+        background: #2563EB !important; border-color: #2563EB !important;
+        color: #FFFFFF !important;
+    }
+    [data-testid="stBaseButton-primary"]:hover,
+    [data-testid="stBaseButton-primaryFormSubmit"]:hover,
+    button[kind="primary"]:hover, button[kind="primaryFormSubmit"]:hover {
+        background: #1D4ED8 !important; border-color: #1D4ED8 !important;
+        color: #FFFFFF !important;
     }
     .asset-pct-bar div { height: 100%; background: #2563EB; border-radius: 3px; }
 
@@ -329,24 +352,41 @@ st.markdown(
 
     /* 최신성 경고 — 노란 톤의 expander */
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
-        [data-testid="stExpander"] details {
-        border: 1px solid #FDE68A; background: #FFFBEB;
-    }
+        [data-testid="stExpander"] details,
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
-        [data-testid="stExpander"] summary {
-        color: #B45309; font-weight: 700;
-    }
+        [data-testid="stExpander"] details[open],
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
         [data-testid="stExpander"] details:hover,
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
-        [data-testid="stExpander"] summary:hover {
-        color: #B45309 !important; background: #FFFBEB !important;
+        [data-testid="stExpander"] details:focus-within {
+        border: 1px solid #FDE68A !important;
+        background: #FFFBEB !important; color: #B45309 !important;
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
-        [data-testid="stExpander"] summary:hover p,
+        [data-testid="stExpander"] summary,
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
-        [data-testid="stExpander"] summary:hover span {
+        [data-testid="stExpander"] summary:hover,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] summary:focus,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] summary:active {
+        color: #B45309 !important; background: #FFFBEB !important;
+        font-weight: 700;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] summary p,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] summary span,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] summary svg,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpanderDetails"],
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        .warn-list,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        .warn-list li {
         color: #B45309 !important;
+        background: #FFFBEB !important;
     }
     /* 접힘/펼침을 알 수 있게 우측에 안내 텍스트 표시 */
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
@@ -731,7 +771,7 @@ if not report:
         st.markdown('<span class="section-card-marker"></span>', unsafe_allow_html=True)
         section_title("1. 고객 정보")
         raw_input = st.text_area(
-            "상담 내용",
+            "고객 정보",
             value="",
             placeholder="고객 정보를 입력해 주세요.",
             height=150,
