@@ -42,12 +42,19 @@ class _FakeRetriever:
     def invoke(self, query: str, **kwargs):
         category = (kwargs.get("filter") or {}).get("category")
         self.categories.append(category)
+        is_stress_methodology = "스트레스 테스트" in query
+        source = (
+            "methodology_stress_2026.pdf"
+            if is_stress_methodology
+            else "doc_b.pdf"
+        )
+        chunk_id = f"{source}::0003"
         return [
             _FakeDoc(
                 REAL_SENTENCE,
                 {
-                    "chunk_id": "doc_b.pdf::0003",
-                    "source": "doc_b.pdf",
+                    "chunk_id": chunk_id,
+                    "source": source,
                     "category": category or "methodology",
                     "published_at": "2026-05-01",
                     "char_start": 0,
@@ -64,19 +71,25 @@ class _FakeLLM:
     deployment_name = "test-deployment"
 
     def invoke(self, prompt: str):
+        source = (
+            "methodology_stress_2026.pdf"
+            if "methodology_stress_2026.pdf::0003" in prompt
+            else "doc_b.pdf"
+        )
+        chunk_id = f"{source}::0003"
         return json.dumps(
             [
                 {  # 원문에 실존 → 통과해야 함
                     "claim": "스트레스 테스트 보완 근거",
                     "quote": REAL_SENTENCE,
-                    "chunk_id": "doc_b.pdf::0003",
-                    "source": "doc_b.pdf",
+                    "chunk_id": chunk_id,
+                    "source": source,
                 },
                 {  # 환각 → 반드시 탈락해야 함
                     "claim": "수익 보장",
                     "quote": "본 전략은 연 30% 수익을 보장한다.",
-                    "chunk_id": "doc_b.pdf::0003",
-                    "source": "doc_b.pdf",
+                    "chunk_id": chunk_id,
+                    "source": source,
                 },
             ],
             ensure_ascii=False,
@@ -155,7 +168,10 @@ def test_only_verified_citations_recorded(monkeypatch):
     assert len(citations) == 4  # 활성화된 topic 각각에서 환각 후보는 제거됨
     assert all(citation["quote"] == REAL_SENTENCE for citation in citations)
     assert all(citation["verified"] is True for citation in citations)
-    assert all(citation["chunk_id"] == "doc_b.pdf::0003" for citation in citations)
+    assert {citation["chunk_id"] for citation in citations} == {
+        "doc_b.pdf::0003",
+        "methodology_stress_2026.pdf::0003",
+    }
     assert all(
         citation["extra"]["chunk_text"] == REAL_SENTENCE for citation in citations
     )
@@ -573,8 +589,8 @@ def test_none_retriever_result_falls_back():
 
 def test_malformed_chunks_and_candidate_extra_do_not_break_rag(monkeypatch):
     valid_chunk = {
-        "chunk_id": "valid.pdf::0001",
-        "source": "valid.pdf",
+        "chunk_id": "methodology_stress_2026.pdf::0001",
+        "source": "methodology_stress_2026.pdf",
         "category": "methodology",
         "text": REAL_SENTENCE,
     }
@@ -592,8 +608,8 @@ def test_malformed_chunks_and_candidate_extra_do_not_break_rag(monkeypatch):
         lambda _raw, _chunks: [
             Citation(
                 quote=REAL_SENTENCE,
-                source="valid.pdf",
-                chunk_id="valid.pdf::0001",
+                source="methodology_stress_2026.pdf",
+                chunk_id="methodology_stress_2026.pdf::0001",
                 claim="LLM claim",
                 extra=None,
             )
@@ -644,6 +660,14 @@ class _TopicRetriever:
             ]
         if "스트레스 테스트" in query:
             return [
+                _FakeDoc(
+                    VAR_SENTENCE,
+                    {
+                        "chunk_id": "methodology_var_cvar_2026.pdf::0003",
+                        "source": "methodology_var_cvar_2026.pdf",
+                        "category": "methodology",
+                    },
+                ),
                 _FakeDoc(
                     REAL_SENTENCE,
                     {
