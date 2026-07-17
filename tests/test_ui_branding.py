@@ -5,8 +5,11 @@ from pathlib import Path
 from ui.branding import logo_markup
 
 
-def test_logo_markup_uses_project_asset() -> None:
-    markup = logo_markup(Path("ui/assets/symphony-logo.png"))
+def test_logo_markup_encodes_readable_asset(tmp_path: Path) -> None:
+    dummy_logo = tmp_path / "symphony-logo.png"
+    dummy_logo.write_bytes(b"fake-logo-bytes")
+
+    markup = logo_markup(dummy_logo)
 
     assert markup.startswith('<img src="data:image/png;base64,')
     assert 'alt="S.ymphony"' in markup
