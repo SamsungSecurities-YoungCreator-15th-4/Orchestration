@@ -44,6 +44,9 @@ TOPIC_CATEGORIES = {
     "세무 참고": "tax",
     "재작성 반영": "methodology",
 }
+TOPIC_REQUIRED_SOURCES = {
+    "스트레스 시나리오": "methodology_stress_2026.pdf",
+}
 ASSET_LABELS = {
     "domestic_equity": "국내주식",
     "global_equity": "해외주식",
@@ -149,6 +152,18 @@ def _tax_issue_terms(ips: dict) -> tuple[str, ...]:
 def _category_for_topic(topic: str) -> str:
     """설명 topic을 합의된 단일 corpus category로 라우팅한다."""
     return TOPIC_CATEGORIES.get(topic, "methodology")
+
+
+def _required_source_chunks(topic: str, chunks: list[dict]) -> list[dict]:
+    """특정 topic이 합의된 공식 방법론 문서만 인용하도록 제한한다."""
+    required_source = TOPIC_REQUIRED_SOURCES.get(topic)
+    if required_source is None:
+        return chunks
+    return [
+        chunk
+        for chunk in chunks
+        if chunk["source"].replace("\\", "/").rsplit("/", 1)[-1] == required_source
+    ]
 
 
 def _routing_reason(topic: str, metrics: dict, ips: dict) -> str:
@@ -797,6 +812,15 @@ def rag_cite(state: RiskState, *, llm=None, retriever=None) -> dict:
                 topic,
                 len(retrieved_chunks) - len(valid_chunks),
             )
+        required_source = TOPIC_REQUIRED_SOURCES.get(topic)
+        valid_chunks = _required_source_chunks(topic, valid_chunks)
+        if required_source and not valid_chunks:
+            log.warning(
+                "topic=%s 필수 방법론 문서 검색 결과 없음: %s",
+                topic,
+                required_source,
+            )
+            continue
         chunks = _select_diverse_chunks(valid_chunks)
         if not chunks:
             log.warning("topic=%s 검색 결과 청크 없음 — 해당 topic 건너뜀", topic)
