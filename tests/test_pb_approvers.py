@@ -32,6 +32,8 @@ def test_only_authorized_pb_pair_is_accepted():
 @pytest.mark.parametrize(
     ("name", "employee_id"),
     [
+        (None, "010518"),
+        ("나승민", None),
         ("", "010518"),
         ("나승민", ""),
         ("없는PB", "010518"),
@@ -45,6 +47,10 @@ def test_missing_or_unknown_pb_information_is_rejected(name, employee_id):
 def test_mismatched_candidate_name_and_employee_id_are_rejected():
     error = validate_pb_approver("국준호", "010518")
     assert error == "PB 이름과 PB 사번의 매칭이 일치하지 않습니다."
+
+
+def test_approver_label_handles_none_defensively():
+    assert approver_label(None, None) == " / "
 
 
 @pytest.mark.parametrize(
