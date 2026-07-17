@@ -233,6 +233,34 @@ SCENARIO_LABELS = {
 
 ASSET_LABELS = dict(ASSET_DEFINITIONS)
 
+LOGO_MARK_SVG = (
+    '<svg viewBox="0 0 120 120" width="34" height="34" '
+    'fill="none" stroke-linecap="round" stroke-linejoin="round">'
+    '<path d="M92,26 C70,8 45,10 42,28 C39,46 62,46 66,60 '
+    'C70,76 50,86 30,78 C18,73 12,66 10,58" '
+    'stroke="#1B3B8F" stroke-width="9"/>'
+    '<path d="M86,34 C68,22 50,26 50,38 C50,50 66,50 68,60 '
+    'C70,72 54,78 40,72" '
+    'stroke="#4D7FE0" stroke-width="9"/>'
+    '<path d="M88,22 L98,14 L92,26 Z" fill="#D9B98A"/>'
+    "</svg>"
+)
+
+WARNING_ICON_SVG = (
+    '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" '
+    'stroke="currentColor" stroke-width="1.6" style="vertical-align:-2px;margin-right:0.3rem;">'
+    '<path d="M8 1.5 15 14.5H1z" stroke-linejoin="round"/>'
+    '<path d="M8 6v3.5" stroke-linecap="round"/><circle cx="8" cy="12" r="0.6" fill="currentColor"/>'
+    "</svg>"
+)
+
+LINK_ICON_SVG = (
+    '<svg class="doc-link-icon" viewBox="0 0 16 16" width="12" height="12" '
+    'fill="none" stroke="currentColor" stroke-width="1.6">'
+    '<path d="M6.5 9.5 14 2M9 2h5v5M13 9v4a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4"/>'
+    "</svg>"
+)
+
 
 def scenario_label(code: str | None) -> str:
     if not code:
@@ -374,6 +402,7 @@ if not report:
                 "비중": format_pct(item.get("weight")),
             }
             for item in (pending.get("portfolio") or [])
+            if isinstance(item, dict)
         ]
         st.dataframe(portfolio_rows, use_container_width=True, hide_index=True)
 
@@ -486,22 +515,10 @@ if not report:
     st.stop()
 else:
     total_value = report.get("summary", {}).get("portfolio", {}).get("total_value_krw")
-    _LOGO_MARK_SVG = (
-        '<svg viewBox="0 0 120 120" width="34" height="34" '
-        'fill="none" stroke-linecap="round" stroke-linejoin="round">'
-        '<path d="M92,26 C70,8 45,10 42,28 C39,46 62,46 66,60 '
-        'C70,76 50,86 30,78 C18,73 12,66 10,58" '
-        'stroke="#1B3B8F" stroke-width="9"/>'
-        '<path d="M86,34 C68,22 50,26 50,38 C50,50 66,50 68,60 '
-        'C70,72 54,78 40,72" '
-        'stroke="#4D7FE0" stroke-width="9"/>'
-        '<path d="M88,22 L98,14 L92,26 Z" fill="#D9B98A"/>'
-        "</svg>"
-    )
     st.markdown(
         f"""
         <div class="brand-header">
-        <div class="brand-row">{_LOGO_MARK_SVG}<span class="wordmark">S<span class="dot">.</span>ymphony</span></div>
+        <div class="brand-row">{LOGO_MARK_SVG}<span class="wordmark">S<span class="dot">.</span>ymphony</span></div>
         <div class="report-subtitle">{report.get("title", "재현가능·설명가능 리스크 리포트")}</div>
         <p>기준일 {report.get("as_of_date") or "-"} · 포트폴리오 총액 {format_krw(total_value)}</p>
         </div>
@@ -512,15 +529,8 @@ else:
     warnings = report.get("warnings") or []
     if warnings:
         items = "".join(f"<li>{w}</li>" for w in warnings)
-        warning_icon = (
-            '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" '
-            'stroke="currentColor" stroke-width="1.6" style="vertical-align:-2px;margin-right:0.3rem;">'
-            '<path d="M8 1.5 15 14.5H1z" stroke-linejoin="round"/>'
-            '<path d="M8 6v3.5" stroke-linecap="round"/><circle cx="8" cy="12" r="0.6" fill="currentColor"/>'
-            "</svg>"
-        )
         st.markdown(
-            f'<div class="notice-box"><strong>{warning_icon}최신 데이터 검토 필요</strong>'
+            f'<div class="notice-box"><strong>{WARNING_ICON_SVG}최신 데이터 검토 필요</strong>'
             f'<ul style="margin:0.4rem 0 0 1.1rem;">{items}</ul></div>',
             unsafe_allow_html=True,
         )
@@ -672,13 +682,6 @@ else:
             if section_citations:
                 rows = citation_table_rows(section_citations)
 
-                _LINK_ICON_SVG = (
-                    '<svg class="doc-link-icon" viewBox="0 0 16 16" width="12" height="12" '
-                    'fill="none" stroke="currentColor" stroke-width="1.6">'
-                    '<path d="M6.5 9.5 14 2M9 2h5v5M13 9v4a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4"/>'
-                    "</svg>"
-                )
-
                 def _source_cell(source: str) -> str:
                     escaped = html.escape(source)
                     url = document_url(source)
@@ -686,7 +689,7 @@ else:
                         return escaped
                     return (
                         f'<a class="doc-link" href="{html.escape(url)}" '
-                        f'target="_blank" rel="noopener">{_LINK_ICON_SVG}'
+                        f'target="_blank" rel="noopener">{LINK_ICON_SVG}'
                         f"{escaped}</a>"
                     )
 
