@@ -4,6 +4,8 @@ from ui.rag_evidence import (
     RAG_EVIDENCE_SECTIONS,
     citation_table_rows,
     group_verified_citations,
+    replace_citation_indexes,
+    unique_review_warnings,
 )
 
 
@@ -82,3 +84,26 @@ def test_missing_publication_date_and_source_have_safe_placeholders():
         "출처": "-",
         "발행기준일": "-",
     }
+
+
+def test_freshness_warning_uses_document_names_and_removes_chunk_duplicates():
+    first = _citation("house_view")
+    duplicate = _citation("house_view")
+    duplicate["chunk_id"] = "house_view_202605.pdf::0002"
+    second = _citation("house_view")
+    second["source"] = "/private/corpus/house_view_202604.pdf"
+    second["chunk_id"] = "house_view_202604.pdf::0001"
+    citations = [first, duplicate, second]
+    warnings = [
+        "#1 house_view 8개월 경과 — 최신성 경고, "
+        "#2 house_view 8개월 경과 — 최신성 경고, "
+        "#3 house_view 9개월 경과 — 최신성 경고"
+    ]
+
+    assert unique_review_warnings(warnings, citations) == [
+        "house_view_202605.pdf — 8개월 경과 — 최신성 경고",
+        "house_view_202604.pdf — 9개월 경과 — 최신성 경고",
+    ]
+    assert replace_citation_indexes(warnings[0], citations).startswith(
+        "house_view_202605.pdf — 8개월 경과"
+    )

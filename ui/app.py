@@ -1,6 +1,5 @@
 """자연어 IPS·포트폴리오 입력부터 PB 승인·리스크 결과까지 제공하는 Streamlit UI."""
 import html
-import re
 import sys
 import uuid
 from datetime import date
@@ -15,7 +14,6 @@ from app.graph import build_graph
 from app.nodes.load_inputs import (
     ASSET_DEFINITIONS,
     DUMMY_PORTFOLIO,
-    SAMPLE_RAW_INPUT,
     TOTAL_ASSET_KRW,
     portfolio_from_percentages,
 )
@@ -40,6 +38,8 @@ from ui.rag_evidence import (
     RAG_EVIDENCE_SECTIONS,
     citation_table_rows,
     group_verified_citations,
+    replace_citation_indexes,
+    unique_review_warnings,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -144,6 +144,12 @@ st.markdown(
         [data-testid="stNumberInputContainer"]::after {
         content: "%"; align-self: center;
         font-size: 15px; font-weight: 800; color: #2563EB; margin-left: 4px;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] > div:first-child,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] > div:has(> input) {
+        flex: 0 0 auto !important; width: fit-content !important; min-width: 0 !important;
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
         [data-testid="stNumberInputContainer"] {
@@ -331,7 +337,17 @@ st.markdown(
         color: #B45309; font-weight: 700;
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
-        [data-testid="stExpander"] summary:hover { color: #92400E; }
+        [data-testid="stExpander"] details:hover,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] summary:hover {
+        color: #B45309 !important; background: #FFFBEB !important;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] summary:hover p,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] summary:hover span {
+        color: #B45309 !important;
+    }
     /* 접힘/펼침을 알 수 있게 우측에 안내 텍스트 표시 */
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
         [data-testid="stExpander"] summary::after {
@@ -647,6 +663,30 @@ def format_pct_range(low, high, point=None) -> str:
     return format_pct(point)
 
 
+def basis_table_html(
+    rows: list[tuple[str, object]], *, include_unavailable: bool = False
+) -> str:
+    """산출 근거를 공통 표로 렌더링하고 필요하면 미확인 항목도 유지한다."""
+
+    available = [
+        (label, str(value))
+        for label, value in rows
+        if include_unavailable
+        or (value is not None and str(value).strip() and str(value) != "정보 없음")
+    ]
+    if not available:
+        return ""
+    body = "".join(
+        f"<tr><td>{html.escape(label)}</td><td>{html.escape(value)}</td></tr>"
+        for label, value in available
+    )
+    return (
+        '<div style="font-size:0.78rem;font-weight:700;color:#999;'
+        'margin:0.6rem 0 0.2rem 0;">산출 근거</div>'
+        f'<table class="basis-table">{body}</table>'
+    )
+
+
 DEFAULT_PERCENTAGES = {
     item["asset_class"]: item["weight"] * 100 for item in DUMMY_PORTFOLIO
 }
@@ -691,7 +731,8 @@ if not report:
         section_title("1. 고객 상담")
         raw_input = st.text_area(
             "상담 내용",
-            value=SAMPLE_RAW_INPUT,
+            value="",
+            placeholder="고객 상담 내용을 입력해 주세요.",
             height=150,
         )
         fixed_cols = st.columns(5)
@@ -1045,40 +1086,7 @@ else:
     )
 
     if warnings:
-        # judge가 여러 건을 한 문자열로 합쳐 주는 경우가 있어 "#n" 경계로 나눠 센다.
-        _warn_items: list[str] = []
-        for w in warnings:
-            _warn_items.extend(
-                s.strip() for s in re.split(r",\s(?=#)", str(w)) if s.strip()
-            )
-
-        # "#N"은 judge의 검증 통과 인용 인덱스(1-base) — 같은 기준으로 재구성해
-        # 사용자에게는 인덱스 대신 문서명을 보여준다.
-        def _judge_verified(citation) -> bool:
-            return (
-                isinstance(citation, dict)
-                and citation.get("verified") is True
-                and str(citation.get("quote") or "").strip() != ""
-                and str(citation.get("source") or "").strip() != ""
-                and str(citation.get("chunk_id") or "").strip() != ""
-            )
-
-        _verified_sources = [
-            str(c.get("source")).replace("\\", "/").rsplit("/", 1)[-1]
-            for c in (report.get("citations") or [])
-            if _judge_verified(c)
-        ]
-
-        def _warn_display(item: str) -> str:
-            match = re.match(r"#(\d+)\s+(?:house_view\s+)?(.*)$", item)
-            if not match:
-                return item
-            idx = int(match.group(1))
-            if 1 <= idx <= len(_verified_sources):
-                return f"{_verified_sources[idx - 1]} — {match.group(2)}"
-            return item
-
-        _warn_items = [_warn_display(i) for i in _warn_items]
+        _warn_items = unique_review_warnings(warnings, report.get("citations") or [])
         with st.container():
             st.markdown('<span class="warn-exp-marker"></span>', unsafe_allow_html=True)
             with st.expander(
@@ -1209,14 +1217,13 @@ else:
         methodology_text = f"{methodology_ref}.pdf" if methodology_ref else "정보 없음"
         fx_rate_asof = risk.get("fx_rate_asof")
         fx_rate_text = f"{fx_rate_asof:,.2f}원" if fx_rate_asof is not None else "정보 없음"
-        _basis_table_html = (
-            '<div style="font-size:0.78rem;font-weight:700;color:#999;'
-            'margin:0.6rem 0 0.2rem 0;">산출 근거</div>'
-            '<table class="basis-table">'
-            f'<tr><td>관측 데이터 기간</td><td>{html.escape(period_text)}</td></tr>'
-            f'<tr><td>적용 환율</td><td>{html.escape(fx_rate_text)}</td></tr>'
-            f'<tr><td>방법론</td><td>{html.escape(methodology_text)}</td></tr>'
-            "</table>"
+        _basis_table_html = basis_table_html(
+            [
+                ("관측 데이터 기간", period_text),
+                ("적용 환율", fx_rate_text),
+                ("방법론", methodology_text),
+            ],
+            include_unavailable=True,
         )
         st.markdown(_basis_table_html, unsafe_allow_html=True)
         _methodology_section = next(
@@ -1304,6 +1311,23 @@ else:
                 f"<tbody>{_sc_rows}</tbody></table>",
                 unsafe_allow_html=True,
             )
+            _stress_methodology_sources = sorted(
+                {
+                    str(citation.get("source")).replace("\\", "/").rsplit("/", 1)[-1]
+                    for citation in grouped_citations["methodology"]
+                    if isinstance(citation, dict)
+                    and "stress" in str(citation.get("source") or "").lower()
+                }
+            )
+            _stress_basis_html = basis_table_html(
+                [
+                    ("관측 데이터 기간", period_text),
+                    ("적용 환율", fx_rate_text),
+                    ("방법론", ", ".join(_stress_methodology_sources) or None),
+                ]
+            )
+            if _stress_basis_html:
+                st.markdown(_stress_basis_html, unsafe_allow_html=True)
 
     with st.container():
         st.markdown('<span class="section-card-marker"></span>', unsafe_allow_html=True)
@@ -1357,9 +1381,21 @@ else:
         st.markdown("<br>", unsafe_allow_html=True)
         checks = judge.get("checks") or []
         if checks:
+            def _check_detail(check: dict) -> str:
+                detail = check.get("detail") or ""
+                if check.get("name") == "citation_publication_freshness":
+                    return ", ".join(
+                        unique_review_warnings(
+                            [detail], report.get("citations") or []
+                        )
+                    )
+                return replace_citation_indexes(
+                    detail, report.get("citations") or []
+                )
+
             rows = "".join(
                 f"""<tr{"" if c.get('passed') else " class='check-row-warn'"}>"""
-                f"""<td>{html.escape(str(c.get('detail') or ''))}</td>"""
+                f"""<td>{html.escape(_check_detail(c))}</td>"""
                 f"""<td class='check-col'>"""
                 f"""<span class='chk-ico{"" if c.get('passed') else " chk-ico-warn"}'>"""
                 f"""{"✓" if c.get('passed') else "!"}</span></td></tr>"""
