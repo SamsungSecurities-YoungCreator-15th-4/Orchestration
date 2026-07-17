@@ -706,7 +706,7 @@ if not report:
     )
 
     _current_step = 3 if st.session_state.get("pending_state") else 1
-    _steps = ["상담 입력", "IPS 추출", "포트폴리오 비중", "PB 승인"]
+    _steps = ["고객 정보 입력", "포트폴리오 입력", "IPS 추출", "PB 승인 및 리스크 분석"]
     _step_html = "".join(
         f'<div class="step"><div class="num {"num-done" if n <= _current_step else "num-pending"}">{n}</div>'
         f'<div class="label">{html.escape(label)}</div></div>'
@@ -717,8 +717,8 @@ if not report:
         f"""
         <div class="report-header">
         <div class="titles">
-        <h1>고객 상담 및 포트폴리오 입력</h1>
-        <p>상담 내역에서 IPS를 추출하고 PB 승인 후에만 계산을 진행합니다.</p>
+        <h1>고객 정보 및 포트폴리오 입력</h1>
+        <p>고객 정보에서 IPS를 추출하고 PB 승인 후에만 계산을 진행합니다.</p>
         </div>
         <div class="step-indicator">{_step_html}</div>
         </div>
@@ -728,11 +728,11 @@ if not report:
 
     with st.container():
         st.markdown('<span class="section-card-marker"></span>', unsafe_allow_html=True)
-        section_title("1. 고객 상담")
+        section_title("1. 고객 정보")
         raw_input = st.text_area(
             "상담 내용",
             value="",
-            placeholder="고객 상담 내용을 입력해 주세요.",
+            placeholder="고객 정보를 입력해 주세요.",
             height=150,
         )
         fixed_cols = st.columns(5)
@@ -753,7 +753,7 @@ if not report:
     with st.container():
         st.markdown('<span class="section-card-marker"></span>', unsafe_allow_html=True)
         st.markdown(
-            '<div class="section-title">2. 포트폴리오 비중 '
+            '<div class="section-title">2. 포트폴리오 입력 '
             '<span class="section-cap">6개 자산군 비중을 입력해 주세요. (합계 100% 기준)</span></div>',
             unsafe_allow_html=True,
         )
@@ -803,7 +803,7 @@ if not report:
             unsafe_allow_html=True,
         )
 
-        with st.expander("시연 옵션"):
+        with st.expander("추가 옵션"):
             st.caption("judge 강제 실패 횟수")
             force_judge_fail = st.number_input(
                 "judge 강제 실패 횟수",
@@ -829,7 +829,7 @@ if not report:
             }
             if invocation.trace_id:
                 payload["trace_id"] = invocation.trace_id
-            with st.spinner("상담 내역 분석 및 IPS 항목 추출 중…"):
+            with st.spinner("IPS 추출 중…"):
                 with tracing_scope(invocation):
                     for _ in graph.stream(
                         payload,
