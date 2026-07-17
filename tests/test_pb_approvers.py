@@ -42,8 +42,9 @@ def test_missing_or_unknown_pb_information_is_rejected(name, employee_id):
     assert validate_pb_approver(name, employee_id)
 
 
-def test_mismatched_candidate_name_and_employee_id_are_rejected():
-    error = validate_pb_approver("국준호", "010518")
+@pytest.mark.parametrize("employee_id", ["010518", "999999"])
+def test_known_pb_with_mismatched_employee_id_gets_precise_error(employee_id):
+    error = validate_pb_approver("국준호", employee_id)
     assert error == "PB 이름과 PB 사번의 매칭이 일치하지 않습니다."
 
 
