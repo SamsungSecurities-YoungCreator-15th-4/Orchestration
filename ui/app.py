@@ -31,7 +31,7 @@ from app.state import (
 )
 from ui.document_links import document_url
 from ui.index_supply import prepare_index_or_stop
-from ui.pb_approvers import approver_label, candidate_rows, validate_pb_approver
+from ui.pb_approvers import approver_label, validate_pb_approver
 from ui.rag_evidence import (
     RAG_EVIDENCE_SECTIONS,
     citation_table_rows,
@@ -381,9 +381,6 @@ if not report:
                     value=ips.get("Unique", ""),
                     help="고금리·강달러 충격 문구는 저장 시 항상 맨 앞에 유지됩니다.",
                 )
-                st.markdown("**PB 이름 / PB 사번 후보**")
-                st.table(candidate_rows())
-                st.caption("승인 권한 PB: 나승민 / 010518")
                 approver_name = st.text_input("PB 이름", placeholder="PB 이름 입력")
                 approver_employee_id = st.text_input(
                     "PB 사번",
