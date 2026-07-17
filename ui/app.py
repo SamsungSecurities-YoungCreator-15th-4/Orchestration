@@ -56,7 +56,7 @@ if not (
     or st.session_state.get("pending_state")
     or st.session_state.get("report")
 ):
-    if render_start_page(st):
+    if render_start_page():
         st.session_state["symphony_started"] = True
         st.rerun()
     st.stop()

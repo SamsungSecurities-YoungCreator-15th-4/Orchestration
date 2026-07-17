@@ -5,6 +5,8 @@ st.rerun()으로 전부 사라지므로 본 화면 스타일과 충돌하지 않
 """
 from __future__ import annotations
 
+import streamlit as st
+
 # ui/assets/symphony-icon.png(백조형 이중 S 마크)의 형태를 참고해 만든
 # 어두운 배경 전용 SVG 마크. PNG 원본은 밝은 배경용 파란 톤이라 그대로 쓰지 않는다.
 START_LOGO_SVG = (
@@ -74,10 +76,10 @@ _START_CSS = """
 """
 
 
-def render_start_page(st_module) -> bool:
+def render_start_page() -> bool:
     """시작 화면을 그리고 '시작하기' 클릭 여부를 반환한다."""
-    st_module.markdown(_START_CSS, unsafe_allow_html=True)
-    st_module.markdown(
+    st.markdown(_START_CSS, unsafe_allow_html=True)
+    st.markdown(
         '<div class="start-hero">'
         f"{START_LOGO_SVG}"
         '<div class="start-wordmark">S.ymphony</div>'
@@ -85,4 +87,4 @@ def render_start_page(st_module) -> bool:
         "</div>",
         unsafe_allow_html=True,
     )
-    return st_module.button("시작하기", type="primary", key="symphony_start")
+    return st.button("시작하기", type="primary", key="symphony_start")
