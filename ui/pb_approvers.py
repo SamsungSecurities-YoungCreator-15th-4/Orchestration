@@ -12,7 +12,6 @@ PB_CANDIDATES: tuple[tuple[str, str], ...] = (
 )
 AUTHORIZED_PB = ("나승민", "010518")
 _CANDIDATES_DICT = dict(PB_CANDIDATES)
-_KNOWN_IDS = set(_CANDIDATES_DICT.values())
 
 
 def validate_pb_approver(name: str | None, employee_id: str | None) -> str | None:
@@ -23,7 +22,7 @@ def validate_pb_approver(name: str | None, employee_id: str | None) -> str | Non
         return "PB 이름과 PB 사번을 모두 입력해야 합니다."
 
     expected_id = _CANDIDATES_DICT.get(normalized_name)
-    if expected_id is None or normalized_id not in _KNOWN_IDS:
+    if expected_id is None:
         return "등록된 PB 후보 정보와 일치하지 않습니다."
     if expected_id != normalized_id:
         return "PB 이름과 PB 사번의 매칭이 일치하지 않습니다."
