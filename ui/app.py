@@ -769,7 +769,7 @@ if not report:
         <div class="report-header">
         <div class="titles">
         <h1>고객 정보 및 포트폴리오 입력</h1>
-        <p>고객 정보에서 IPS를 추출하고 PB 승인 후에만 계산을 진행합니다.</p>
+        <p>고객 정보에서 IPS를 추출하고 PB 승인 후에만 리스크 분석을 진행합니다.</p>
         </div>
         <div class="step-indicator">{_step_html}</div>
         </div>
@@ -804,8 +804,8 @@ if not report:
     with st.container():
         st.markdown('<span class="section-card-marker"></span>', unsafe_allow_html=True)
         st.markdown(
-            '<div class="section-title">2. 포트폴리오 입력 '
-            '<span class="section-cap">6개 자산군 비중을 입력해 주세요. (합계 100% 기준)</span></div>',
+            '<div class="section-title">2. 포트폴리오 '
+            '<span class="section-cap">6개 자산군 비중을 입력해 주세요.</span></div>',
             unsafe_allow_html=True,
         )
         percentages: dict[str, float] = {}
