@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 RAG_EVIDENCE_SECTIONS = (
     {
         "category": "methodology",
@@ -67,3 +69,53 @@ def citation_table_rows(citations: list[object]) -> list[dict]:
             }
         )
     return rows
+
+
+def replace_citation_indexes(text: object, citations: object) -> str:
+    """Judge의 ``#N house_view`` 표기를 해당 검증 인용의 문서명으로 바꾼다."""
+
+    value = str(text or "")
+    verified_sources: list[str] = []
+    if isinstance(citations, list):
+        for citation in citations:
+            if not isinstance(citation, dict) or citation.get("verified") is not True:
+                continue
+            quote = citation.get("quote")
+            source = citation.get("source")
+            chunk_id = citation.get("chunk_id")
+            if not (
+                isinstance(quote, str)
+                and quote.strip()
+                and isinstance(source, str)
+                and source.strip()
+                and isinstance(chunk_id, str)
+                and chunk_id.strip()
+            ):
+                continue
+            source_name = source.replace("\\", "/").rsplit("/", 1)[-1]
+            verified_sources.append(source_name)
+
+    def _replace(match: re.Match[str]) -> str:
+        index = int(match.group("index"))
+        if 1 <= index <= len(verified_sources):
+            return f"{verified_sources[index - 1]} —"
+        return match.group(0)
+
+    return re.sub(r"#(?P<index>\d+)(?:\s+house_view)?", _replace, value)
+
+
+def unique_review_warnings(warnings: object, citations: object) -> list[str]:
+    """합쳐진 Judge 경고를 문서명으로 바꾸고 같은 문서 경고를 한 번만 남긴다."""
+
+    if not isinstance(warnings, list):
+        return []
+
+    items: list[str] = []
+    for warning in warnings:
+        items.extend(
+            part.strip()
+            for part in re.split(r",\s(?=#)", str(warning))
+            if part.strip()
+        )
+    display_items = [replace_citation_indexes(item, citations) for item in items]
+    return list(dict.fromkeys(display_items))

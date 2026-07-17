@@ -1,12 +1,12 @@
 """자연어 IPS·포트폴리오 입력부터 PB 승인·리스크 결과까지 제공하는 Streamlit UI."""
 import html
-import re
 import sys
 import uuid
 from datetime import date
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -15,7 +15,6 @@ from app.graph import build_graph
 from app.nodes.load_inputs import (
     ASSET_DEFINITIONS,
     DUMMY_PORTFOLIO,
-    SAMPLE_RAW_INPUT,
     TOTAL_ASSET_KRW,
     portfolio_from_percentages,
 )
@@ -40,6 +39,8 @@ from ui.rag_evidence import (
     RAG_EVIDENCE_SECTIONS,
     citation_table_rows,
     group_verified_citations,
+    replace_citation_indexes,
+    unique_review_warnings,
 )
 from ui.start_page import render_start_page
 
@@ -74,6 +75,12 @@ st.markdown(
     [data-testid="stMetricValue"] { font-size: 1.3rem; }
     [data-testid="stMetricLabel"] { font-size: 0.85rem; }
     table { font-size: 0.9rem; }
+
+    /* 배포 환경의 테마 캐시와 관계없이 앱 바탕은 기존 연파랑을 유지한다. */
+    html, body, .stApp, [data-testid="stAppViewContainer"],
+    [data-testid="stMain"] {
+        background: #EFF3FA !important;
+    }
 
     .app-topbar {
         background: #FFFFFF; border: 1px solid #E4EAF2; border-radius: 16px;
@@ -162,14 +169,37 @@ st.markdown(
         font-size: 15px; font-weight: 800; color: #2563EB; margin-left: 4px;
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] > div:first-child,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] > div:has(> input) {
+        flex: 0 0 auto !important; width: fit-content !important; min-width: 0 !important;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
         [data-testid="stNumberInputContainer"] {
-        border: none; background: transparent; justify-content: flex-start; gap: 0;
+        border: none !important; background: transparent !important;
+        box-shadow: none !important; justify-content: flex-start; gap: 0;
+    }
+    /* BaseWeb NumberInput은 Root → InputContainer의 중첩 div에 배경을 넣는다. */
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] div,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] [data-baseweb="input"],
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] [data-baseweb="base-input"] {
+        background: transparent !important; background-color: transparent !important;
+        background-image: none !important; box-shadow: none !important;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] > div:has(> input) {
+        background: transparent !important; box-shadow: none !important;
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
         [data-testid="stNumberInputContainer"] input {
         font-size: 26px; font-weight: 800; color: #1D4ED8; letter-spacing: -0.01em;
         padding: 0; width: auto; flex: 0 0 auto; height: 36px;
         field-sizing: content; min-width: 1.2em; max-width: 4.5em;
+        border: none !important; background: transparent !important;
+        box-shadow: none !important;
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
         [data-testid="stNumberInputStepDown"],
@@ -208,8 +238,18 @@ st.markdown(
     [data-testid="stExpander"] [data-testid="stNumberInput"] { width: 150px; }
 
     /* 기본(primary) 버튼 — 목업처럼 크고 둥글게 */
-    [data-testid="stBaseButton-primary"] {
+    [data-testid="stBaseButton-primary"],
+    [data-testid="stBaseButton-primaryFormSubmit"],
+    button[kind="primary"], button[kind="primaryFormSubmit"] {
         padding: 0.65rem 1.6rem; border-radius: 10px; font-weight: 700;
+        background: #2563EB !important; border-color: #2563EB !important;
+        color: #FFFFFF !important;
+    }
+    [data-testid="stBaseButton-primary"]:hover,
+    [data-testid="stBaseButton-primaryFormSubmit"]:hover,
+    button[kind="primary"]:hover, button[kind="primaryFormSubmit"]:hover {
+        background: #1D4ED8 !important; border-color: #1D4ED8 !important;
+        color: #FFFFFF !important;
     }
     .asset-pct-bar div { height: 100%; background: #2563EB; border-radius: 3px; }
 
@@ -339,15 +379,42 @@ st.markdown(
 
     /* 최신성 경고 — 노란 톤의 expander */
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
-        [data-testid="stExpander"] details {
-        border: 1px solid #FDE68A; background: #FFFBEB;
+        [data-testid="stExpander"] details,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] details[open],
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] details:hover,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] details:focus-within {
+        border: 1px solid #FDE68A !important;
+        background: #FFFBEB !important; color: #B45309 !important;
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
-        [data-testid="stExpander"] summary {
-        color: #B45309; font-weight: 700;
+        [data-testid="stExpander"] summary,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] summary:hover,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] summary:focus,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] summary:active {
+        color: #B45309 !important; background: #FFFBEB !important;
+        font-weight: 700;
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
-        [data-testid="stExpander"] summary:hover { color: #92400E; }
+        [data-testid="stExpander"] summary p,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] summary span,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpander"] summary svg,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        [data-testid="stExpanderDetails"],
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        .warn-list,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
+        .warn-list li {
+        color: #B45309 !important;
+        background: #FFFBEB !important;
+    }
     /* 접힘/펼침을 알 수 있게 우측에 안내 텍스트 표시 */
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .warn-exp-marker)
         [data-testid="stExpander"] summary::after {
@@ -663,9 +730,85 @@ def format_pct_range(low, high, point=None) -> str:
     return format_pct(point)
 
 
+def basis_table_html(
+    rows: list[tuple[str, object]], *, include_unavailable: bool = False
+) -> str:
+    """산출 근거를 공통 표로 렌더링하고 필요하면 미확인 항목도 유지한다."""
+
+    available: list[tuple[str, str]] = []
+    for label, value in rows:
+        value_text = str(value).strip() if value is not None else ""
+        if not value_text:
+            value_text = "정보 없음"
+        if include_unavailable or value_text != "정보 없음":
+            available.append((label, value_text))
+    if not available:
+        return ""
+    body = "".join(
+        f"<tr><td>{html.escape(label)}</td><td>{html.escape(value)}</td></tr>"
+        for label, value in available
+    )
+    return (
+        '<div style="font-size:0.78rem;font-weight:700;color:#999;'
+        'margin:0.6rem 0 0.2rem 0;">산출 근거</div>'
+        f'<table class="basis-table">{body}</table>'
+    )
+
+
 DEFAULT_PERCENTAGES = {
     item["asset_class"]: item["weight"] * 100 for item in DUMMY_PORTFOLIO
 }
+
+
+def scroll_report_to_top_once() -> None:
+    """리포트 첫 렌더가 안정될 때까지 최상단 위치를 강제로 유지한다."""
+    if not st.session_state.pop("scroll_report_to_top", False):
+        return
+    components.html(
+        """
+        <script>
+        (() => {
+          const scrollToTop = () => {
+            const parentWindow = window.parent;
+            const parentDocument = parentWindow.document;
+            const anchor = parentDocument.getElementById('report-page-top');
+            window.frameElement?.scrollIntoView({
+              block: 'start', inline: 'nearest', behavior: 'auto'
+            });
+            const targets = [
+              parentDocument.querySelector('[data-testid="stAppViewContainer"]'),
+              parentDocument.querySelector('[data-testid="stMain"]'),
+              parentDocument.querySelector('section.main'),
+              parentDocument.scrollingElement,
+              parentDocument.documentElement,
+              parentDocument.body,
+            ].filter(Boolean);
+            anchor?.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'auto' });
+            targets.forEach((target) => {
+              target.scrollTop = 0;
+              target.scrollLeft = 0;
+              target.scrollTo?.({ top: 0, left: 0, behavior: 'auto' });
+            });
+            parentWindow.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+          };
+
+          requestAnimationFrame(scrollToTop);
+          [0, 50, 150, 300, 600, 1000, 1600, 2400].forEach((delay) => {
+            setTimeout(scrollToTop, delay);
+          });
+
+          const observer = new MutationObserver(scrollToTop);
+          observer.observe(window.parent.document.body, { childList: true, subtree: true });
+          setTimeout(() => {
+            observer.disconnect();
+            scrollToTop();
+          }, 3000);
+        })();
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
 
 report = st.session_state.get("report")
 
@@ -682,7 +825,7 @@ if not report:
     )
 
     _current_step = 3 if st.session_state.get("pending_state") else 1
-    _steps = ["상담 입력", "IPS 추출", "포트폴리오 비중", "PB 승인"]
+    _steps = ["고객 정보 입력", "포트폴리오 입력", "IPS 추출", "PB 승인 및 리스크 분석"]
     _step_html = "".join(
         f'<div class="step"><div class="num {"num-done" if n <= _current_step else "num-pending"}">{n}</div>'
         f'<div class="label">{html.escape(label)}</div></div>'
@@ -693,8 +836,8 @@ if not report:
         f"""
         <div class="report-header">
         <div class="titles">
-        <h1>고객 상담 및 포트폴리오 입력</h1>
-        <p>상담 내역에서 IPS를 추출하고 PB 승인 후에만 계산을 진행합니다.</p>
+        <h1>고객 정보 및 포트폴리오 입력</h1>
+        <p>고객 정보에서 IPS를 추출하고 PB 승인 후에만 리스크 분석을 진행합니다.</p>
         </div>
         <div class="step-indicator">{_step_html}</div>
         </div>
@@ -704,10 +847,11 @@ if not report:
 
     with st.container():
         st.markdown('<span class="section-card-marker"></span>', unsafe_allow_html=True)
-        section_title("1. 고객 상담")
+        section_title("1. 고객 정보")
         raw_input = st.text_area(
-            "상담 내용",
-            value=SAMPLE_RAW_INPUT,
+            "고객 정보",
+            value="",
+            placeholder="고객 정보를 입력해 주세요.",
             height=150,
         )
         fixed_cols = st.columns(5)
@@ -728,8 +872,8 @@ if not report:
     with st.container():
         st.markdown('<span class="section-card-marker"></span>', unsafe_allow_html=True)
         st.markdown(
-            '<div class="section-title">2. 포트폴리오 비중 '
-            '<span class="section-cap">6개 자산군 비중을 입력해 주세요. (합계 100% 기준)</span></div>',
+            '<div class="section-title">2. 포트폴리오 '
+            '<span class="section-cap">6개 자산군 비중을 입력해 주세요.</span></div>',
             unsafe_allow_html=True,
         )
         percentages: dict[str, float] = {}
@@ -778,7 +922,7 @@ if not report:
             unsafe_allow_html=True,
         )
 
-        with st.expander("시연 옵션"):
+        with st.expander("추가 옵션"):
             st.caption("judge 강제 실패 횟수")
             force_judge_fail = st.number_input(
                 "judge 강제 실패 횟수",
@@ -804,7 +948,7 @@ if not report:
             }
             if invocation.trace_id:
                 payload["trace_id"] = invocation.trace_id
-            with st.spinner("상담 내역 분석 및 IPS 항목 추출 중…"):
+            with st.spinner("IPS 추출 중…"):
                 with tracing_scope(invocation):
                     for _ in graph.stream(
                         payload,
@@ -984,6 +1128,7 @@ if not report:
                         st.session_state["report"] = graph.get_state(
                             resume_invocation.config
                         ).values.get("report")
+                        st.session_state["scroll_report_to_top"] = True
                         for key in ("pending_graph", "pending_config", "pending_state"):
                             st.session_state.pop(key, None)
                         st.rerun()
@@ -995,6 +1140,8 @@ report = st.session_state.get("report")
 if not report:
     st.stop()
 else:
+    st.markdown('<div id="report-page-top" aria-hidden="true"></div>', unsafe_allow_html=True)
+    scroll_report_to_top_once()
     total_value = report["summary"]["portfolio"]["total_value_krw"]
     st.markdown(
         f"""
@@ -1061,40 +1208,7 @@ else:
     )
 
     if warnings:
-        # judge가 여러 건을 한 문자열로 합쳐 주는 경우가 있어 "#n" 경계로 나눠 센다.
-        _warn_items: list[str] = []
-        for w in warnings:
-            _warn_items.extend(
-                s.strip() for s in re.split(r",\s(?=#)", str(w)) if s.strip()
-            )
-
-        # "#N"은 judge의 검증 통과 인용 인덱스(1-base) — 같은 기준으로 재구성해
-        # 사용자에게는 인덱스 대신 문서명을 보여준다.
-        def _judge_verified(citation) -> bool:
-            return (
-                isinstance(citation, dict)
-                and citation.get("verified") is True
-                and str(citation.get("quote") or "").strip() != ""
-                and str(citation.get("source") or "").strip() != ""
-                and str(citation.get("chunk_id") or "").strip() != ""
-            )
-
-        _verified_sources = [
-            str(c.get("source")).replace("\\", "/").rsplit("/", 1)[-1]
-            for c in (report.get("citations") or [])
-            if _judge_verified(c)
-        ]
-
-        def _warn_display(item: str) -> str:
-            match = re.match(r"#(\d+)\s+(?:house_view\s+)?(.*)$", item)
-            if not match:
-                return item
-            idx = int(match.group(1))
-            if 1 <= idx <= len(_verified_sources):
-                return f"{_verified_sources[idx - 1]} — {match.group(2)}"
-            return item
-
-        _warn_items = [_warn_display(i) for i in _warn_items]
+        _warn_items = unique_review_warnings(warnings, report.get("citations") or [])
         with st.container():
             st.markdown('<span class="warn-exp-marker"></span>', unsafe_allow_html=True)
             with st.expander(
@@ -1225,14 +1339,13 @@ else:
         methodology_text = f"{methodology_ref}.pdf" if methodology_ref else "정보 없음"
         fx_rate_asof = risk.get("fx_rate_asof")
         fx_rate_text = f"{fx_rate_asof:,.2f}원" if fx_rate_asof is not None else "정보 없음"
-        _basis_table_html = (
-            '<div style="font-size:0.78rem;font-weight:700;color:#999;'
-            'margin:0.6rem 0 0.2rem 0;">산출 근거</div>'
-            '<table class="basis-table">'
-            f'<tr><td>관측 데이터 기간</td><td>{html.escape(period_text)}</td></tr>'
-            f'<tr><td>적용 환율</td><td>{html.escape(fx_rate_text)}</td></tr>'
-            f'<tr><td>방법론</td><td>{html.escape(methodology_text)}</td></tr>'
-            "</table>"
+        _basis_table_html = basis_table_html(
+            [
+                ("관측 데이터 기간", period_text),
+                ("적용 환율", fx_rate_text),
+                ("방법론", methodology_text),
+            ],
+            include_unavailable=True,
         )
         st.markdown(_basis_table_html, unsafe_allow_html=True)
         _methodology_section = next(
@@ -1320,6 +1433,24 @@ else:
                 f"<tbody>{_sc_rows}</tbody></table>",
                 unsafe_allow_html=True,
             )
+            _stress_methodology_sources = sorted(
+                {
+                    citation.get("source", "").replace("\\", "/").rsplit("/", 1)[-1]
+                    for citation in grouped_citations.get("methodology", [])
+                    if isinstance(citation, dict)
+                    and isinstance(citation.get("source"), str)
+                    and "stress" in citation.get("source", "").lower()
+                }
+            )
+            _stress_basis_html = basis_table_html(
+                [
+                    ("관측 데이터 기간", period_text),
+                    ("적용 환율", fx_rate_text),
+                    ("방법론", ", ".join(_stress_methodology_sources) or None),
+                ]
+            )
+            if _stress_basis_html:
+                st.markdown(_stress_basis_html, unsafe_allow_html=True)
 
     with st.container():
         st.markdown('<span class="section-card-marker"></span>', unsafe_allow_html=True)
@@ -1373,9 +1504,21 @@ else:
         st.markdown("<br>", unsafe_allow_html=True)
         checks = judge.get("checks") or []
         if checks:
+            def _check_detail(check: dict) -> str:
+                detail = check.get("detail") or ""
+                if check.get("name") == "citation_publication_freshness":
+                    return ", ".join(
+                        unique_review_warnings(
+                            [detail], report.get("citations") or []
+                        )
+                    )
+                return replace_citation_indexes(
+                    detail, report.get("citations") or []
+                )
+
             rows = "".join(
                 f"""<tr{"" if c.get('passed') else " class='check-row-warn'"}>"""
-                f"""<td>{html.escape(str(c.get('detail') or ''))}</td>"""
+                f"""<td>{html.escape(_check_detail(c))}</td>"""
                 f"""<td class='check-col'>"""
                 f"""<span class='chk-ico{"" if c.get('passed') else " chk-ico-warn"}'>"""
                 f"""{"✓" if c.get('passed') else "!"}</span></td></tr>"""
