@@ -49,9 +49,9 @@ def test_verified_citations_are_grouped_into_four_agreed_sections():
     assert [len(grouped[category]) for category in grouped] == [1, 1, 1, 1]
     assert [section["title"] for section in RAG_EVIDENCE_SECTIONS] == [
         "정량 계산 방법론 (연산 반영)",
-        "거시환경·스트레스 근거 (연산 미반영)",
-        "자산시장 참고자료 (연산 미반영)",
-        "세무 참고자료 (연산 미반영)",
+        "거시경제 근거",
+        "House View 근거",
+        "세금 이슈 근거",
     ]
 
 

@@ -49,7 +49,8 @@ def test_report_renders_four_role_based_rag_sections():
     app = AppTest.from_file("ui/app.py")
     app.session_state["report"] = {
         "title": "테스트 리스크 리포트",
-        "summary": {"portfolio": {}, "risk": {}},
+        "as_of_date": "2026-07-03",
+        "summary": {"portfolio": {"total_value_krw": 0}, "risk": {}},
         "evidence": {"verified_citation_count": 4, "citation_count": 4},
         "citations": [
             {
@@ -61,7 +62,7 @@ def test_report_renders_four_role_based_rag_sections():
             }
             for category in ("methodology", "macro", "house_view", "tax")
         ],
-        "governance": {},
+        "governance": {"judge_passed": True},
         "judge": {},
         "reproducibility": {},
     }
@@ -71,9 +72,9 @@ def test_report_renders_four_role_based_rag_sections():
     assert not app.exception
     markdown = "\n".join(element.value for element in app.markdown)
     assert "정량 계산 방법론" in markdown
-    assert "거시환경·스트레스 근거 (연산 미반영)" in markdown
-    assert "자산시장 참고자료 (연산 미반영)" in markdown
-    assert "세무 참고자료 (연산 미반영)" in markdown
+    assert "거시경제 근거" in markdown
+    assert "House View 근거" in markdown
+    assert "세금 이슈 근거" in markdown
     # 근거문장 칸의 긴 미분리 텍스트가 컬럼 폭을 왜곡하지 않도록 st.table 대신
     # 폭 고정(colgroup) 커스텀 HTML 표를 쓴다 — AppTest는 이를 markdown으로 노출한다.
     citation_table_html = [

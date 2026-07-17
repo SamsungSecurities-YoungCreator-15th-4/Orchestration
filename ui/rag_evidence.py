@@ -6,18 +6,22 @@ RAG_EVIDENCE_SECTIONS = (
     {
         "category": "methodology",
         "title": "정량 계산 방법론 (연산 반영)",
+        "description": "사내 공식 리스크 연산 문서를 바탕으로 정량 계산되었습니다.",
     },
     {
         "category": "macro",
-        "title": "거시환경·스트레스 근거 (연산 미반영)",
+        "title": "거시경제 근거",
+        "description": "리스크 연산을 위해 참고한 거시경제 관련 문서입니다.",
     },
     {
         "category": "house_view",
-        "title": "자산시장 참고자료 (연산 미반영)",
+        "title": "House View 근거",
+        "description": "리스크 연산을 위해 참고한 삼성증권 House View 관련 문서입니다.",
     },
     {
         "category": "tax",
-        "title": "세무 참고자료 (연산 미반영)",
+        "title": "세금 이슈 근거",
+        "description": "리스크 연산을 위해 참고한 국세청 세금 관련 문서입니다.",
     },
 )
 
