@@ -198,11 +198,23 @@ st.markdown(
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
         [data-testid="stNumberInputContainer"] input {
-        font-size: 26px; font-weight: 800; color: #1D4ED8; letter-spacing: -0.01em;
-        padding: 0; width: auto; flex: 0 0 auto; height: 36px;
-        field-sizing: content; min-width: 1.2em; max-width: 4.5em;
-        border: none !important; background: transparent !important;
-        box-shadow: none !important;
+        font-size: 22px; font-weight: 800; color: #1D4ED8; letter-spacing: -0.01em;
+        padding: 2px 10px; width: auto; flex: 0 0 auto; height: 38px;
+        field-sizing: content; min-width: 2.4em; max-width: 5.5em;
+        /* 직접 타이핑할 수 있음을 알리는 입력 박스 형태 (다른 입력창과 동일 톤) */
+        border: 1px solid #D7DFEC !important; border-radius: 8px !important;
+        background: #F8FAFC !important; box-shadow: none !important;
+        cursor: text;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] input:hover {
+        border-color: #93B4F5 !important;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] input:focus {
+        border-color: #2563EB !important;
+        box-shadow: 0 0 0 2px rgba(37,99,235,0.12) !important;
+        background: #FFFFFF !important;
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
         [data-testid="stNumberInputStepDown"],
@@ -210,15 +222,33 @@ st.markdown(
         [data-testid="stNumberInputStepUp"] {
         border: 1px solid #E4EAF2 !important; border-radius: 8px !important;
         background: #FFFFFF !important; width: 28px; height: 28px;
+        color: #334155 !important;
+    }
+    /* 호버 시 아이콘이 사라지지 않게 — 연회색 배경 + 진한 아이콘 유지 */
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputStepDown"]:hover,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputStepUp"]:hover {
+        background: #EEF2F8 !important; border-color: #CBD5E1 !important;
+        color: #0F172A !important;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputStepDown"] svg,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputStepUp"] svg {
+        fill: currentColor !important;
     }
     .asset-pct-name { font-size: 14px; font-weight: 700; color: #0F172A; }
+    /* 금액 줄은 음수 마진으로 숫자 입력 위에 겹쳐 있으므로, 클릭이
+       입력창까지 통과하도록 한다 (없으면 숫자를 클릭해 타이핑할 수 없다). */
     .asset-pct-amt {
         font-size: 12px; color: #94A3B8; font-variant-numeric: tabular-nums;
         text-align: right; margin-top: -30px; margin-bottom: 8px;
+        pointer-events: none;
     }
     .asset-pct-bar {
         height: 5px; background: #EFF3F9; border-radius: 3px; overflow: hidden;
-        margin-top: 0; margin-bottom: 10px;
+        margin-top: 14px; margin-bottom: 10px;
     }
     .section-cap { font-size: 13px; font-weight: 500; color: #64748B; margin-left: 10px; }
 
