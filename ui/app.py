@@ -699,7 +699,9 @@ def section_title(text: str) -> None:
 def _policy_source_titles() -> dict[str, str]:
     """IPS 정책 근거 ID → 공식 근거 제목 매핑 (config/ips_policy.yaml sources)."""
     with open(ROOT / "config" / "ips_policy.yaml", encoding="utf-8") as file:
-        policy = yaml.safe_load(file) or {}
+        policy = yaml.safe_load(file)
+    if not isinstance(policy, dict):
+        return {}
     return {
         source["id"]: source["title"]
         for source in policy.get("sources", [])
