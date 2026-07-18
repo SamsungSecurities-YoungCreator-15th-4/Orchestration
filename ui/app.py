@@ -702,9 +702,12 @@ def _policy_source_titles() -> dict[str, str]:
         policy = yaml.safe_load(file)
     if not isinstance(policy, dict):
         return {}
+    sources = policy.get("sources")
+    if not isinstance(sources, list):
+        sources = []
     return {
         source["id"]: source["title"]
-        for source in policy.get("sources", [])
+        for source in sources
         if isinstance(source, dict) and source.get("id") and source.get("title")
     }
 
