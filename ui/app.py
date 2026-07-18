@@ -1093,6 +1093,8 @@ if not report:
                     conflict if isinstance(conflict, dict) else {}
                     for conflict in raw_conflicts
                 ]
+            elif isinstance(raw_conflicts, dict):
+                conflicts = [raw_conflicts]
             else:
                 conflicts = [{}]
 
