@@ -101,6 +101,36 @@ def test_pb_approval_hides_candidates_and_authorization_hint():
     assert not any("승인 권한 PB" in caption.value for caption in app.caption)
 
 
+def test_pb_approval_handles_malformed_conflicts_without_exposing_none():
+    app = AppTest.from_file("ui/app.py")
+    app.session_state["pending_state"] = {
+        "ips": {"Unique": "고금리·강달러 충격"},
+        "portfolio": [],
+        "conflicts": [
+            {
+                "detail": None,
+                "evidence_refs": None,
+                "policy_version": None,
+                "severity": "unknown",
+            },
+            None,
+        ],
+    }
+
+    app.run(timeout=20)
+
+    assert not app.exception
+    assert any("예외 승인할 수 없는 IPS 충돌" in error.value for error in app.error)
+    assert not app.text_input
+    conflict_table = next(
+        element.value
+        for element in app.markdown
+        if 'class="pf-table cf-table"' in element.value
+    )
+    assert conflict_table.count("cf-badge-block") == 2
+    assert ">None<" not in conflict_table
+
+
 def test_report_renders_four_role_based_rag_sections():
     app = AppTest.from_file("ui/app.py")
     app.session_state["scroll_report_to_top"] = True
