@@ -1457,7 +1457,7 @@ else:
             s for s in RAG_EVIDENCE_SECTIONS if s["category"] == "methodology"
         )
         _quant_methodology, _stress_methodology = partition_methodology_citations(
-            grouped_citations.get("methodology", [])
+            grouped_citations["methodology"]
         )
         _render_citation_section(
             _methodology_section,
