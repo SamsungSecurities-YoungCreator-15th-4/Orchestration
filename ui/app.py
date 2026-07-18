@@ -39,6 +39,7 @@ from ui.rag_evidence import (
     RAG_EVIDENCE_SECTIONS,
     citation_table_rows,
     group_verified_citations,
+    reference_document_counts,
     replace_citation_indexes,
     unique_review_warnings,
 )
@@ -1455,10 +1456,10 @@ else:
     with st.container():
         st.markdown('<span class="section-card-marker"></span>', unsafe_allow_html=True)
         section_title("분석 근거 및 원문 출처")
-        evidence = report.get("evidence", {})
+        reference_counts = reference_document_counts(report.get("citations"))
         e1, e2 = st.columns(2)
-        e1.metric("유효한 검증 근거", f"{evidence.get('verified_citation_count', 0)}건")
-        e2.metric("전체 참조 자료", f"{evidence.get('citation_count', 0)}건")
+        e1.metric("유효한 검증 근거", f"{reference_counts['verified']}건")
+        e2.metric("전체 참고 자료", f"{reference_counts['total']}건")
 
         for section in RAG_EVIDENCE_SECTIONS:
             if section["category"] == "methodology":
