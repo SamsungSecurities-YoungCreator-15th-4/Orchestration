@@ -4,6 +4,7 @@ from ui.rag_evidence import (
     RAG_EVIDENCE_SECTIONS,
     citation_table_rows,
     group_verified_citations,
+    partition_methodology_citations,
     reference_document_counts,
     replace_citation_indexes,
     unique_review_warnings,
@@ -80,6 +81,21 @@ def test_reference_document_counts_exclude_methodology_and_duplicate_chunks():
 
     assert counts == {"total": 3, "verified": 2}
     assert reference_document_counts(None) == {"total": 0, "verified": 0}
+
+
+def test_methodology_citations_are_partitioned_by_stress_source():
+    quantitative = _citation("methodology")
+    quantitative["source"] = "/private/corpus/methodology_var_cvar_2026.pdf"
+    stress = _citation("methodology")
+    stress["source"] = "/private/corpus/methodology_stress_2026.pdf"
+
+    quantitative_rows, stress_rows = partition_methodology_citations(
+        [quantitative, None, stress]
+    )
+
+    assert quantitative_rows == [quantitative]
+    assert stress_rows == [stress]
+    assert partition_methodology_citations(None) == ([], [])
 
 
 def test_customer_rows_expose_only_agreed_fields():

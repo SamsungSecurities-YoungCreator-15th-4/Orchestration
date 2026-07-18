@@ -41,6 +41,7 @@ from ui.rag_evidence import (
     RAG_EVIDENCE_SECTIONS,
     citation_table_rows,
     group_verified_citations,
+    partition_methodology_citations,
     reference_document_counts,
     replace_citation_indexes,
     unique_review_warnings,
@@ -1318,9 +1319,18 @@ else:
                 )
     grouped_citations = group_verified_citations(report.get("citations") or [])
 
-    def _render_citation_section(section: dict, *, heading_override: str | None = None) -> None:
+    def _render_citation_section(
+        section: dict,
+        *,
+        heading_override: str | None = None,
+        citations_override: list[dict] | None = None,
+    ) -> None:
         category = section["category"]
-        section_citations = grouped_citations[category]
+        section_citations = (
+            grouped_citations[category]
+            if citations_override is None
+            else citations_override
+        )
         if heading_override is not None:
             st.markdown(
                 f'<div style="font-size:1.05rem;font-weight:700;color:#1a1a1a;'
@@ -1446,7 +1456,14 @@ else:
         _methodology_section = next(
             s for s in RAG_EVIDENCE_SECTIONS if s["category"] == "methodology"
         )
-        _render_citation_section(_methodology_section, heading_override="정량 계산 방법론")
+        _quant_methodology, _stress_methodology = partition_methodology_citations(
+            grouped_citations["methodology"]
+        )
+        _render_citation_section(
+            _methodology_section,
+            heading_override="리스크 정량 계산 근거",
+            citations_override=_quant_methodology,
+        )
 
     drilldown = risk.get("drilldown") or []
     if drilldown:
@@ -1546,6 +1563,18 @@ else:
             )
             if _stress_basis_html:
                 st.markdown(_stress_basis_html, unsafe_allow_html=True)
+            if _stress_methodology:
+                _render_citation_section(
+                    {
+                        "category": "methodology",
+                        "title": "스트레스 테스트 근거",
+                        "description": (
+                            "사내 공식 스트레스 연산 문서를 바탕으로 "
+                            "정량 계산되었습니다."
+                        ),
+                    },
+                    citations_override=_stress_methodology,
+                )
 
     with st.container():
         st.markdown('<span class="section-card-marker"></span>', unsafe_allow_html=True)
