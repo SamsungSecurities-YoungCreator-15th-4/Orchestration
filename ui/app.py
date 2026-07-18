@@ -1461,7 +1461,7 @@ else:
         )
         _render_citation_section(
             _methodology_section,
-            heading_override="리스크 정량 계산 방법론",
+            heading_override="리스크 정량 계산 근거",
             citations_override=_quant_methodology,
         )
 
@@ -1567,7 +1567,7 @@ else:
                 _render_citation_section(
                     {
                         "category": "methodology",
-                        "title": "스트레스 테스트 방법론",
+                        "title": "스트레스 테스트 근거",
                         "description": (
                             "사내 공식 스트레스 연산 문서를 바탕으로 "
                             "정량 계산되었습니다."

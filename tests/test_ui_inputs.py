@@ -130,7 +130,7 @@ def test_report_renders_four_role_based_rag_sections():
     assert "scroll_report_to_top" not in app.session_state
     markdown = "\n".join(element.value for element in app.markdown)
     assert 'id="report-page-top"' in markdown
-    assert "리스크 정량 계산 방법론" in markdown
+    assert "리스크 정량 계산 근거" in markdown
     assert any(
         caption.value
         == "사내 공식 리스크 연산 문서를 바탕으로 정량 계산되었습니다."
@@ -278,7 +278,7 @@ def test_report_deduplicates_freshness_warnings_and_renders_stress_basis():
     )
     assert "methodology_stress_2026.pdf" not in var_table
     assert any(
-        "스트레스 테스트 방법론" in value
+        "스트레스 테스트 근거" in value
         for value in (element.value for element in app.markdown)
     )
     assert any(
