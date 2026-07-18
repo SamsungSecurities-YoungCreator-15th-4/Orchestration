@@ -2,6 +2,8 @@
 import html
 import sys
 import uuid
+
+import yaml
 from datetime import date
 from pathlib import Path
 
@@ -314,6 +316,20 @@ st.markdown(
         border: none; border-bottom: 1px solid #EDF1F7;
     }
     .pf-table td.pf-weight { color: #2563EB; font-weight: 800; }
+
+    /* IPS 충돌 표 */
+    .cf-table td.cf-detail { color: #334155; font-weight: 600; }
+    .cf-table .cf-evidence { color: #64748B; font-weight: 500; margin-bottom: 3px; }
+    .cf-table .cf-evidence:last-child { margin-bottom: 0; }
+    .cf-table td.cf-date { white-space: nowrap; color: #64748B; font-weight: 600; }
+    .cf-badge {
+        display: inline-block; border: 1px solid #F59E0B; color: #B45309;
+        background: #FFFBEB; border-radius: 999px; padding: 2px 10px;
+        font-size: 0.78rem; font-weight: 700; white-space: nowrap;
+    }
+    .cf-badge.cf-badge-block {
+        border-color: #FCA5A5; color: #B91C1C; background: #FEF2F2;
+    }
 
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .section-card-marker) {
         background: #FFFFFF; border: 1px solid #E4EAF2; border-radius: 16px;
@@ -679,6 +695,18 @@ def section_title(text: str) -> None:
     st.markdown(f'<div class="section-title">{text}</div>', unsafe_allow_html=True)
 
 
+@st.cache_data
+def _policy_source_titles() -> dict[str, str]:
+    """IPS 정책 근거 ID → 공식 근거 제목 매핑 (config/ips_policy.yaml sources)."""
+    with open(ROOT / "config" / "ips_policy.yaml", encoding="utf-8") as file:
+        policy = yaml.safe_load(file) or {}
+    return {
+        source["id"]: source["title"]
+        for source in policy.get("sources", [])
+        if isinstance(source, dict) and source.get("id") and source.get("title")
+    }
+
+
 SCENARIO_LABELS = {
     "A_high_rate": "고금리 충격",
     "B_strong_usd": "강달러 충격",
@@ -1031,8 +1059,38 @@ if not report:
                 if blocking_conflicts:
                     st.error("예외 승인할 수 없는 IPS 충돌이 있어 입력 보완이 필요합니다.")
                 else:
-                    st.warning("PB의 구체적 사유가 있는 예외 승인 후 리스크 계산만 진행할 수 있습니다.")
-                st.dataframe(conflicts, use_container_width=True, hide_index=True)
+                    st.warning(
+                        "예외 승인이 필요한 IPS 충돌이 발견되었습니다. "
+                        "PB가 구체적인 사유를 기록해 예외 승인하면 리스크 계산을 진행할 수 있습니다."
+                    )
+                _severity_labels = {"block": "차단", "review": "예외 승인 가능"}
+                _src_titles = _policy_source_titles()
+                _cf_rows = "".join(
+                    "<tr>"
+                    f'<td class="cf-detail">{html.escape(str(conflict["detail"]))}</td>'
+                    "<td>"
+                    + (
+                        "".join(
+                            f'<div class="cf-evidence">{html.escape(_src_titles.get(ref, ref))}</div>'
+                            for ref in conflict["evidence_refs"]
+                        )
+                        or "-"
+                    )
+                    + "</td>"
+                    f'<td class="cf-date">{html.escape(str(conflict["policy_version"]))}</td>'
+                    "<td><span class=\"cf-badge"
+                    + (" cf-badge-block" if conflict["severity"] == "block" else "")
+                    + f'">{html.escape(_severity_labels.get(conflict["severity"], str(conflict["severity"])))}</span></td>'
+                    "</tr>"
+                    for conflict in conflicts
+                )
+                st.markdown(
+                    '<table class="pf-table cf-table">'
+                    "<thead><tr><th>충돌 사유</th><th>근거자료</th>"
+                    "<th>기준일</th><th>처리 구분</th></tr></thead>"
+                    f"<tbody>{_cf_rows}</tbody></table>",
+                    unsafe_allow_html=True,
+                )
             approve_clicked = False
             if not blocking_conflicts:
                 with st.container():
