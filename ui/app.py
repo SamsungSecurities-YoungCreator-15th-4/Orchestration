@@ -1085,12 +1085,32 @@ if not report:
                 unsafe_allow_html=True,
             )
 
-            conflicts = pending.get("conflicts") or []
+            raw_conflicts = pending.get("conflicts")
+            if raw_conflicts is None:
+                conflicts = []
+            elif isinstance(raw_conflicts, list):
+                conflicts = [
+                    conflict if isinstance(conflict, dict) else {}
+                    for conflict in raw_conflicts
+                ]
+            elif isinstance(raw_conflicts, dict):
+                conflicts = [raw_conflicts]
+            else:
+                conflicts = [{}]
+
+            def _conflict_severity(conflict: dict) -> str:
+                severity = conflict.get("severity")
+                return severity if severity in {"block", "review"} else "block"
+
             blocking_conflicts = [
-                conflict for conflict in conflicts if conflict["severity"] == "block"
+                conflict
+                for conflict in conflicts
+                if _conflict_severity(conflict) == "block"
             ]
             review_conflicts = [
-                conflict for conflict in conflicts if conflict["severity"] == "review"
+                conflict
+                for conflict in conflicts
+                if _conflict_severity(conflict) == "review"
             ]
             if conflicts:
                 if blocking_conflicts:
@@ -1102,25 +1122,40 @@ if not report:
                     )
                 _severity_labels = {"block": "차단", "review": "예외 승인 가능"}
                 _src_titles = _policy_source_titles()
-                _cf_rows = "".join(
-                    "<tr>"
-                    f'<td class="cf-detail">{html.escape(str(conflict["detail"]))}</td>'
-                    "<td>"
-                    + (
-                        "".join(
-                            f'<div class="cf-evidence">{html.escape(_src_titles.get(ref, ref))}</div>'
-                            for ref in conflict["evidence_refs"]
-                        )
-                        or "-"
+                _cf_rows_list = []
+                for conflict in conflicts:
+                    refs = conflict.get("evidence_refs")
+                    refs = refs if isinstance(refs, list) else []
+                    ref_labels = []
+                    for ref in refs:
+                        if ref is None:
+                            continue
+                        ref_key = ref if isinstance(ref, str) else str(ref)
+                        ref_labels.append(_src_titles.get(ref_key, ref_key))
+                    refs_html = "".join(
+                        f'<div class="cf-evidence">{html.escape(label)}</div>'
+                        for label in ref_labels
+                    ) or "-"
+                    detail = conflict.get("detail")
+                    detail_text = html.escape(str(detail)) if detail is not None else "-"
+                    policy_version = conflict.get("policy_version")
+                    policy_version_text = (
+                        html.escape(str(policy_version))
+                        if policy_version is not None
+                        else "-"
                     )
-                    + "</td>"
-                    f'<td class="cf-date">{html.escape(str(conflict["policy_version"]))}</td>'
-                    "<td><span class=\"cf-badge"
-                    + (" cf-badge-block" if conflict["severity"] == "block" else "")
-                    + f'">{html.escape(_severity_labels.get(conflict["severity"], str(conflict["severity"])))}</span></td>'
-                    "</tr>"
-                    for conflict in conflicts
-                )
+                    severity = _conflict_severity(conflict)
+                    badge_class = " cf-badge-block" if severity == "block" else ""
+                    _cf_rows_list.append(
+                        "<tr>"
+                        f'<td class="cf-detail">{detail_text}</td>'
+                        f"<td>{refs_html}</td>"
+                        f'<td class="cf-date">{policy_version_text}</td>'
+                        f'<td><span class="cf-badge{badge_class}">'
+                        f"{html.escape(_severity_labels[severity])}</span></td>"
+                        "</tr>"
+                    )
+                _cf_rows = "".join(_cf_rows_list)
                 st.markdown(
                     '<table class="pf-table cf-table">'
                     "<thead><tr><th>충돌 사유</th><th>근거자료</th>"
