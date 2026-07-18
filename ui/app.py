@@ -2,6 +2,8 @@
 import html
 import sys
 import uuid
+
+import yaml
 from datetime import date
 from pathlib import Path
 
@@ -39,6 +41,7 @@ from ui.rag_evidence import (
     RAG_EVIDENCE_SECTIONS,
     citation_table_rows,
     group_verified_citations,
+    partition_methodology_citations,
     reference_document_counts,
     replace_citation_indexes,
     unique_review_warnings,
@@ -196,11 +199,24 @@ st.markdown(
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
         [data-testid="stNumberInputContainer"] input {
-        font-size: 26px; font-weight: 800; color: #1D4ED8; letter-spacing: -0.01em;
-        padding: 0; width: auto; flex: 0 0 auto; height: 36px;
-        field-sizing: content; min-width: 1.2em; max-width: 4.5em;
-        border: none !important; background: transparent !important;
-        box-shadow: none !important;
+        font-size: 22px; font-weight: 800; color: #1D4ED8; letter-spacing: -0.01em;
+        padding: 2px 10px; width: auto; flex: 0 0 auto; height: 38px;
+        field-sizing: content; min-width: 2.4em; max-width: 5.5em;
+        /* 직접 타이핑할 수 있음을 알리는 입력 박스 형태 (다른 입력창과 동일 톤) */
+        border: 1px solid #D7DFEC !important; border-radius: 8px !important;
+        background: #F8FAFC !important; box-shadow: none !important;
+        cursor: text;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] input:hover {
+        border-color: #93B4F5 !important;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputContainer"] input:focus {
+        border-color: #2563EB !important;
+        box-shadow: 0 0 0 2px rgba(37,99,235,0.12) !important;
+        background: #FFFFFF !important;
+        outline: none !important;
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
         [data-testid="stNumberInputStepDown"],
@@ -208,15 +224,33 @@ st.markdown(
         [data-testid="stNumberInputStepUp"] {
         border: 1px solid #E4EAF2 !important; border-radius: 8px !important;
         background: #FFFFFF !important; width: 28px; height: 28px;
+        color: #334155 !important;
+    }
+    /* 호버 시 아이콘이 사라지지 않게 — 연회색 배경 + 진한 아이콘 유지 */
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputStepDown"]:hover,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputStepUp"]:hover {
+        background: #EEF2F8 !important; border-color: #CBD5E1 !important;
+        color: #0F172A !important;
+    }
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputStepDown"] svg,
+    div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
+        [data-testid="stNumberInputStepUp"] svg {
+        fill: currentColor !important;
     }
     .asset-pct-name { font-size: 14px; font-weight: 700; color: #0F172A; }
+    /* 금액 줄은 음수 마진으로 숫자 입력 위에 겹쳐 있으므로, 클릭이
+       입력창까지 통과하도록 한다 (없으면 숫자를 클릭해 타이핑할 수 없다). */
     .asset-pct-amt {
         font-size: 12px; color: #94A3B8; font-variant-numeric: tabular-nums;
         text-align: right; margin-top: -30px; margin-bottom: 8px;
+        pointer-events: none;
     }
     .asset-pct-bar {
         height: 5px; background: #EFF3F9; border-radius: 3px; overflow: hidden;
-        margin-top: 0; margin-bottom: 10px;
+        margin-top: 14px; margin-bottom: 10px;
     }
     .section-cap { font-size: 13px; font-weight: 500; color: #64748B; margin-left: 10px; }
 
@@ -314,6 +348,20 @@ st.markdown(
         border: none; border-bottom: 1px solid #EDF1F7;
     }
     .pf-table td.pf-weight { color: #2563EB; font-weight: 800; }
+
+    /* IPS 충돌 표 */
+    .cf-table td.cf-detail { color: #334155; font-weight: 600; }
+    .cf-table .cf-evidence { color: #64748B; font-weight: 500; margin-bottom: 3px; }
+    .cf-table .cf-evidence:last-child { margin-bottom: 0; }
+    .cf-table td.cf-date { white-space: nowrap; color: #64748B; font-weight: 600; }
+    .cf-badge {
+        display: inline-block; border: 1px solid #F59E0B; color: #B45309;
+        background: #FFFBEB; border-radius: 999px; padding: 2px 10px;
+        font-size: 0.78rem; font-weight: 700; white-space: nowrap;
+    }
+    .cf-badge.cf-badge-block {
+        border-color: #FCA5A5; color: #B91C1C; background: #FEF2F2;
+    }
 
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .section-card-marker) {
         background: #FFFFFF; border: 1px solid #E4EAF2; border-radius: 16px;
@@ -679,6 +727,23 @@ def section_title(text: str) -> None:
     st.markdown(f'<div class="section-title">{text}</div>', unsafe_allow_html=True)
 
 
+@st.cache_data
+def _policy_source_titles() -> dict[str, str]:
+    """IPS 정책 근거 ID → 공식 근거 제목 매핑 (config/ips_policy.yaml sources)."""
+    with open(ROOT / "config" / "ips_policy.yaml", encoding="utf-8") as file:
+        policy = yaml.safe_load(file)
+    if not isinstance(policy, dict):
+        return {}
+    sources = policy.get("sources")
+    if not isinstance(sources, list):
+        sources = []
+    return {
+        source["id"]: source["title"]
+        for source in sources
+        if isinstance(source, dict) and source.get("id") and source.get("title")
+    }
+
+
 SCENARIO_LABELS = {
     "A_high_rate": "고금리 충격",
     "B_strong_usd": "강달러 충격",
@@ -1020,19 +1085,84 @@ if not report:
                 unsafe_allow_html=True,
             )
 
-            conflicts = pending.get("conflicts") or []
+            raw_conflicts = pending.get("conflicts")
+            if raw_conflicts is None:
+                conflicts = []
+            elif isinstance(raw_conflicts, list):
+                conflicts = [
+                    conflict if isinstance(conflict, dict) else {}
+                    for conflict in raw_conflicts
+                ]
+            elif isinstance(raw_conflicts, dict):
+                conflicts = [raw_conflicts]
+            else:
+                conflicts = [{}]
+
+            def _conflict_severity(conflict: dict) -> str:
+                severity = conflict.get("severity")
+                return severity if severity in {"block", "review"} else "block"
+
             blocking_conflicts = [
-                conflict for conflict in conflicts if conflict["severity"] == "block"
+                conflict
+                for conflict in conflicts
+                if _conflict_severity(conflict) == "block"
             ]
             review_conflicts = [
-                conflict for conflict in conflicts if conflict["severity"] == "review"
+                conflict
+                for conflict in conflicts
+                if _conflict_severity(conflict) == "review"
             ]
             if conflicts:
                 if blocking_conflicts:
                     st.error("예외 승인할 수 없는 IPS 충돌이 있어 입력 보완이 필요합니다.")
                 else:
-                    st.warning("PB의 구체적 사유가 있는 예외 승인 후 리스크 계산만 진행할 수 있습니다.")
-                st.dataframe(conflicts, use_container_width=True, hide_index=True)
+                    st.warning(
+                        "예외 승인이 필요한 IPS 충돌이 발견되었습니다. "
+                        "PB가 구체적인 사유를 기록해 예외 승인하면 리스크 계산을 진행할 수 있습니다."
+                    )
+                _severity_labels = {"block": "차단", "review": "예외 승인 가능"}
+                _src_titles = _policy_source_titles()
+                _cf_rows_list = []
+                for conflict in conflicts:
+                    refs = conflict.get("evidence_refs")
+                    refs = refs if isinstance(refs, list) else []
+                    ref_labels = []
+                    for ref in refs:
+                        if ref is None:
+                            continue
+                        ref_key = ref if isinstance(ref, str) else str(ref)
+                        ref_labels.append(_src_titles.get(ref_key, ref_key))
+                    refs_html = "".join(
+                        f'<div class="cf-evidence">{html.escape(label)}</div>'
+                        for label in ref_labels
+                    ) or "-"
+                    detail = conflict.get("detail")
+                    detail_text = html.escape(str(detail)) if detail is not None else "-"
+                    policy_version = conflict.get("policy_version")
+                    policy_version_text = (
+                        html.escape(str(policy_version))
+                        if policy_version is not None
+                        else "-"
+                    )
+                    severity = _conflict_severity(conflict)
+                    badge_class = " cf-badge-block" if severity == "block" else ""
+                    _cf_rows_list.append(
+                        "<tr>"
+                        f'<td class="cf-detail">{detail_text}</td>'
+                        f"<td>{refs_html}</td>"
+                        f'<td class="cf-date">{policy_version_text}</td>'
+                        f'<td><span class="cf-badge{badge_class}">'
+                        f"{html.escape(_severity_labels[severity])}</span></td>"
+                        "</tr>"
+                    )
+                _cf_rows = "".join(_cf_rows_list)
+                st.markdown(
+                    '<table class="pf-table cf-table">'
+                    "<thead><tr><th>충돌 사유</th><th>근거자료</th>"
+                    "<th>기준일</th><th>처리 구분</th></tr></thead>"
+                    f"<tbody>{_cf_rows}</tbody></table>",
+                    unsafe_allow_html=True,
+                )
             approve_clicked = False
             if not blocking_conflicts:
                 with st.container():
@@ -1224,9 +1354,18 @@ else:
                 )
     grouped_citations = group_verified_citations(report.get("citations") or [])
 
-    def _render_citation_section(section: dict, *, heading_override: str | None = None) -> None:
+    def _render_citation_section(
+        section: dict,
+        *,
+        heading_override: str | None = None,
+        citations_override: list[dict] | None = None,
+    ) -> None:
         category = section["category"]
-        section_citations = grouped_citations[category]
+        section_citations = (
+            grouped_citations[category]
+            if citations_override is None
+            else citations_override
+        )
         if heading_override is not None:
             st.markdown(
                 f'<div style="font-size:1.05rem;font-weight:700;color:#1a1a1a;'
@@ -1352,7 +1491,14 @@ else:
         _methodology_section = next(
             s for s in RAG_EVIDENCE_SECTIONS if s["category"] == "methodology"
         )
-        _render_citation_section(_methodology_section, heading_override="정량 계산 방법론")
+        _quant_methodology, _stress_methodology = partition_methodology_citations(
+            grouped_citations["methodology"]
+        )
+        _render_citation_section(
+            _methodology_section,
+            heading_override="리스크 정량 계산 근거",
+            citations_override=_quant_methodology,
+        )
 
     drilldown = risk.get("drilldown") or []
     if drilldown:
@@ -1452,6 +1598,18 @@ else:
             )
             if _stress_basis_html:
                 st.markdown(_stress_basis_html, unsafe_allow_html=True)
+            if _stress_methodology:
+                _render_citation_section(
+                    {
+                        "category": "methodology",
+                        "title": "스트레스 테스트 근거",
+                        "description": (
+                            "사내 공식 스트레스 연산 문서를 바탕으로 "
+                            "정량 계산되었습니다."
+                        ),
+                    },
+                    citations_override=_stress_methodology,
+                )
 
     with st.container():
         st.markdown('<span class="section-card-marker"></span>', unsafe_allow_html=True)
