@@ -215,6 +215,7 @@ st.markdown(
         border-color: #2563EB !important;
         box-shadow: 0 0 0 2px rgba(37,99,235,0.12) !important;
         background: #FFFFFF !important;
+        outline: none !important;
     }
     div[data-testid="stVerticalBlock"]:has(> div[data-testid="stElementContainer"] .asset-pct-marker)
         [data-testid="stNumberInputStepDown"],
