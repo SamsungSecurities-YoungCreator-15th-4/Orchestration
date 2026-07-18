@@ -1072,12 +1072,12 @@ if not report:
                     + (
                         "".join(
                             f'<div class="cf-evidence">{html.escape(_src_titles.get(ref, ref))}</div>'
-                            for ref in (conflict.get("evidence_refs") or [])
+                            for ref in conflict["evidence_refs"]
                         )
                         or "-"
                     )
                     + "</td>"
-                    f'<td class="cf-date">{html.escape(str(conflict.get("policy_version") or "-"))}</td>'
+                    f'<td class="cf-date">{html.escape(str(conflict["policy_version"]))}</td>'
                     "<td><span class=\"cf-badge"
                     + (" cf-badge-block" if conflict["severity"] == "block" else "")
                     + f'">{html.escape(_severity_labels.get(conflict["severity"], str(conflict["severity"])))}</span></td>'
