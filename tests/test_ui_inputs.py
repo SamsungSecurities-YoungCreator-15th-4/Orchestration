@@ -131,6 +131,11 @@ def test_report_renders_four_role_based_rag_sections():
     markdown = "\n".join(element.value for element in app.markdown)
     assert 'id="report-page-top"' in markdown
     assert "정량 계산 방법론" in markdown
+    assert any(
+        caption.value
+        == "사내 공식 리스크 연산 문서를 바탕으로 정량 계산되었습니다."
+        for caption in app.caption
+    )
     assert "거시경제 근거" in markdown
     assert "House View 근거" in markdown
     assert "세금 이슈 근거" in markdown
@@ -166,6 +171,14 @@ def test_report_deduplicates_freshness_warnings_and_renders_stress_basis():
         "quote": "스트레스 테스트 방법론 근거",
         "source": "methodology_stress_2026.pdf",
         "chunk_id": "methodology_stress_2026.pdf::0001",
+        "verified": True,
+        "extra": {"category": "methodology", "published_at": "2026-07-01"},
+    }
+    var_methodology_citation = {
+        "claim": "VaR·CVaR 방법론",
+        "quote": "VaR·CVaR 정량 계산 방법론 근거",
+        "source": "methodology_var_cvar_2026.pdf",
+        "chunk_id": "methodology_var_cvar_2026.pdf::0001",
         "verified": True,
         "extra": {"category": "methodology", "published_at": "2026-07-01"},
     }
@@ -206,7 +219,11 @@ def test_report_deduplicates_freshness_warnings_and_renders_stress_basis():
             },
         },
         "evidence": {"verified_citation_count": 3, "citation_count": 3},
-        "citations": [*house_citations, methodology_citation],
+        "citations": [
+            *house_citations,
+            var_methodology_citation,
+            methodology_citation,
+        ],
         "warnings": [freshness_detail],
         "governance": {"judge_passed": True},
         "judge": {
@@ -248,6 +265,24 @@ def test_report_deduplicates_freshness_warnings_and_renders_stress_basis():
     assert "2021-09-07 ~ 2026-07-03 (1250거래일)" in basis_tables[1]
     assert "1,542.13원" in basis_tables[1]
     assert "methodology_stress_2026.pdf" in basis_tables[1]
+    citation_tables = [
+        element.value
+        for element in app.markdown
+        if 'class="citation-table"' in element.value
+    ]
+    var_table = next(
+        table for table in citation_tables if "methodology_var_cvar_2026.pdf" in table
+    )
+    stress_table = next(
+        table for table in citation_tables if "methodology_stress_2026.pdf" in table
+    )
+    assert "methodology_stress_2026.pdf" not in var_table
+    assert any(
+        "스트레스 테스트 방법론" in value
+        for value in (element.value for element in app.markdown)
+    )
+    markdown_values = [element.value for element in app.markdown]
+    assert markdown_values.index(basis_tables[1]) < markdown_values.index(stress_table)
     styles = "\n".join(
         element.value for element in app.markdown if "<style>" in element.value
     )

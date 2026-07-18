@@ -56,6 +56,32 @@ def reference_document_counts(citations: object) -> dict[str, int]:
     return {"total": len(all_sources), "verified": len(verified_sources)}
 
 
+def partition_methodology_citations(
+    citations: object,
+) -> tuple[list[dict], list[dict]]:
+    """방법론 인용을 VaR/CVaR용과 스트레스 테스트용으로 순서 보존 분리한다."""
+
+    quantitative: list[dict] = []
+    stress: list[dict] = []
+    if not isinstance(citations, list):
+        return quantitative, stress
+
+    for citation in citations:
+        if not isinstance(citation, dict):
+            continue
+        source = citation.get("source")
+        source_name = (
+            source.strip().replace("\\", "/").rsplit("/", 1)[-1].casefold()
+            if isinstance(source, str)
+            else ""
+        )
+        if "stress" in source_name:
+            stress.append(citation)
+        else:
+            quantitative.append(citation)
+    return quantitative, stress
+
+
 def group_verified_citations(citations) -> dict[str, list[dict]]:
     """검증 인용을 합의된 4개 category로 입력 순서 그대로 분류한다."""
     grouped = {section["category"]: [] for section in RAG_EVIDENCE_SECTIONS}
