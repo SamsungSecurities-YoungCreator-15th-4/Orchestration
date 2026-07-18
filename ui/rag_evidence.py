@@ -27,6 +27,34 @@ RAG_EVIDENCE_SECTIONS = (
     },
 )
 
+REFERENCE_EVIDENCE_CATEGORIES = frozenset({"macro", "house_view", "tax"})
+
+
+def reference_document_counts(citations: object) -> dict[str, int]:
+    """방법론을 제외한 참고 근거의 고유 전체·검증 문서 수를 반환한다."""
+
+    all_sources: set[str] = set()
+    verified_sources: set[str] = set()
+    if not isinstance(citations, list):
+        return {"total": 0, "verified": 0}
+
+    for citation in citations:
+        if not isinstance(citation, dict):
+            continue
+        extra = citation.get("extra")
+        category = extra.get("category") if isinstance(extra, dict) else None
+        source = citation.get("source")
+        if category not in REFERENCE_EVIDENCE_CATEGORIES or not isinstance(source, str):
+            continue
+        source_name = source.strip().replace("\\", "/").rsplit("/", 1)[-1]
+        if not source_name:
+            continue
+        all_sources.add(source_name)
+        if citation.get("verified") is True:
+            verified_sources.add(source_name)
+
+    return {"total": len(all_sources), "verified": len(verified_sources)}
+
 
 def group_verified_citations(citations) -> dict[str, list[dict]]:
     """검증 인용을 합의된 4개 category로 입력 순서 그대로 분류한다."""

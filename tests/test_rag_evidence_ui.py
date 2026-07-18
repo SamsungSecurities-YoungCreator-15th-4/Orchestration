@@ -4,6 +4,7 @@ from ui.rag_evidence import (
     RAG_EVIDENCE_SECTIONS,
     citation_table_rows,
     group_verified_citations,
+    reference_document_counts,
     replace_citation_indexes,
     unique_review_warnings,
 )
@@ -55,6 +56,30 @@ def test_verified_citations_are_grouped_into_four_agreed_sections():
         "House View 근거",
         "세금 이슈 근거",
     ]
+
+
+def test_reference_document_counts_exclude_methodology_and_duplicate_chunks():
+    macro = _citation("macro")
+    macro_duplicate = _citation("macro")
+    macro_duplicate["chunk_id"] = "macro_202605.pdf::0002"
+    house_view = _citation("house_view")
+    tax_unverified = _citation("tax", verified=False)
+
+    counts = reference_document_counts(
+        [
+            _citation("methodology"),
+            macro,
+            macro_duplicate,
+            house_view,
+            tax_unverified,
+            _citation("unknown"),
+            {"verified": True, "source": None, "extra": {"category": "macro"}},
+            None,
+        ]
+    )
+
+    assert counts == {"total": 3, "verified": 2}
+    assert reference_document_counts(None) == {"total": 0, "verified": 0}
 
 
 def test_customer_rows_expose_only_agreed_fields():
