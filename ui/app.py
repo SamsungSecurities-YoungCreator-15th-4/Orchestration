@@ -1585,10 +1585,7 @@ else:
                     {
                         "category": "methodology",
                         "title": "스트레스 테스트 근거",
-                        "description": (
-                            "사내 공식 스트레스 연산 문서를 바탕으로 "
-                            "정량 계산되었습니다."
-                        ),
+                        "description": "정량 엔진에 적용된 스트레스 계산 방법론 문서입니다.",
                     },
                     citations_override=_stress_methodology,
                 )

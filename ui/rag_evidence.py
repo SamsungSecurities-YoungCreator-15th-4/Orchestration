@@ -7,23 +7,23 @@ import re
 RAG_EVIDENCE_SECTIONS = (
     {
         "category": "methodology",
-        "title": "정량 계산 방법론 (연산 반영)",
-        "description": "사내 공식 리스크 연산 문서를 바탕으로 정량 계산되었습니다.",
+        "title": "정량 계산 방법론 (계산 근거)",
+        "description": "정량 엔진에 적용된 VaR·CVaR·스트레스 계산 방법론 문서입니다.",
     },
     {
         "category": "macro",
-        "title": "거시경제 근거",
-        "description": "리스크 연산을 위해 참고한 거시경제 관련 문서입니다.",
+        "title": "거시환경·스트레스 근거 (참고용 · 계산 근거 아님)",
+        "description": "스트레스 시나리오의 거시적 개연성을 해석하기 위한 참고 문서입니다.",
     },
     {
         "category": "house_view",
-        "title": "House View 근거",
-        "description": "리스크 연산을 위해 참고한 삼성증권 House View 관련 문서입니다.",
+        "title": "자산시장 참고자료 (참고용 · 계산 근거 아님)",
+        "description": "포트폴리오 결과의 자산시장 위험을 해석하기 위한 참고 문서입니다.",
     },
     {
         "category": "tax",
-        "title": "세금 이슈 근거",
-        "description": "리스크 연산을 위해 참고한 국세청 세금 관련 문서입니다.",
+        "title": "세무 참고자료 (참고용 · 계산 근거 아님)",
+        "description": "IPS에서 확인된 세무 이슈를 해석하기 위한 참고 문서입니다.",
     },
 )
 

@@ -189,12 +189,16 @@ def test_report_renders_four_role_based_rag_sections():
     assert "리스크 정량 계산 근거" in markdown
     assert any(
         caption.value
-        == "사내 공식 리스크 연산 문서를 바탕으로 정량 계산되었습니다."
+        == "정량 엔진에 적용된 VaR·CVaR·스트레스 계산 방법론 문서입니다."
         for caption in app.caption
     )
-    assert "거시경제 근거" in markdown
-    assert "House View 근거" in markdown
-    assert "세금 이슈 근거" in markdown
+    assert "거시환경·스트레스 근거 (참고용 · 계산 근거 아님)" in markdown
+    assert "자산시장 참고자료 (참고용 · 계산 근거 아님)" in markdown
+    assert "세무 참고자료 (참고용 · 계산 근거 아님)" in markdown
+    assert all(
+        "리스크 연산을 위해 참고한" not in caption.value
+        for caption in app.caption
+    )
     evidence_metrics = {metric.label: metric.value for metric in app.metric}
     assert evidence_metrics["유효한 검증 근거"] == "3건"
     assert evidence_metrics["전체 참고 자료"] == "3건"
@@ -339,7 +343,7 @@ def test_report_deduplicates_warnings_and_renders_stress_evidence_without_basis(
     )
     assert any(
         caption.value
-        == "사내 공식 스트레스 연산 문서를 바탕으로 정량 계산되었습니다."
+        == "정량 엔진에 적용된 스트레스 계산 방법론 문서입니다."
         for caption in app.caption
     )
     styles = "\n".join(

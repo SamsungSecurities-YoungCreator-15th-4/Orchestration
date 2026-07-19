@@ -52,11 +52,21 @@ def test_verified_citations_are_grouped_into_four_agreed_sections():
     ]
     assert [len(grouped[category]) for category in grouped] == [1, 1, 1, 1]
     assert [section["title"] for section in RAG_EVIDENCE_SECTIONS] == [
-        "정량 계산 방법론 (연산 반영)",
-        "거시경제 근거",
-        "House View 근거",
-        "세금 이슈 근거",
+        "정량 계산 방법론 (계산 근거)",
+        "거시환경·스트레스 근거 (참고용 · 계산 근거 아님)",
+        "자산시장 참고자료 (참고용 · 계산 근거 아님)",
+        "세무 참고자료 (참고용 · 계산 근거 아님)",
     ]
+
+
+def test_evidence_section_copy_matches_evidence_role_contract():
+    methodology, *references = RAG_EVIDENCE_SECTIONS
+
+    assert "계산 근거" in methodology["title"]
+    assert "계산 근거 아님" not in methodology["title"]
+    assert all("계산 근거 아님" in section["title"] for section in references)
+    assert all("참고 문서" in section["description"] for section in references)
+    assert all("리스크 연산" not in section["description"] for section in references)
 
 
 def test_reference_document_counts_exclude_methodology_and_duplicate_chunks():
