@@ -318,8 +318,12 @@ def test_report_deduplicates_freshness_warnings_and_renders_stress_basis():
         if 'class="basis-table"' in element.value
     ]
     assert len(basis_tables) == 2
-    assert "2021-09-07 ~ 2026-07-03 (1250거래일)" in basis_tables[1]
-    assert "1,542.13원" in basis_tables[1]
+    assert "2021-09-07 ~ 2026-07-03 (1250거래일)" in basis_tables[0]
+    assert "1,542.13원" in basis_tables[0]
+    assert "관측 데이터 기간" not in basis_tables[1]
+    assert "적용 환율" not in basis_tables[1]
+    assert basis_tables[1].count("<tr>") == 1
+    assert "방법론" in basis_tables[1]
     assert "methodology_stress_2026.pdf" in basis_tables[1]
     citation_tables = [
         element.value

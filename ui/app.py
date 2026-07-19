@@ -1591,8 +1591,6 @@ else:
             )
             _stress_basis_html = basis_table_html(
                 [
-                    ("관측 데이터 기간", period_text),
-                    ("적용 환율", fx_rate_text),
                     ("방법론", ", ".join(_stress_methodology_sources) or None),
                 ]
             )
