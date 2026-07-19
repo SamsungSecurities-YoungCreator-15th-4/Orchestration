@@ -1580,23 +1580,6 @@ else:
                 f"<tbody>{_sc_rows}</tbody></table>",
                 unsafe_allow_html=True,
             )
-            _stress_methodology_sources = sorted(
-                {
-                    citation.get("source", "").replace("\\", "/").rsplit("/", 1)[-1]
-                    for citation in grouped_citations.get("methodology", [])
-                    if isinstance(citation, dict)
-                    and isinstance(citation.get("source"), str)
-                    and "stress" in citation.get("source", "").lower()
-                }
-            )
-            _stress_basis_html = basis_table_html(
-                [
-                    ("방법론", ", ".join(_stress_methodology_sources) or None),
-                ],
-                include_unavailable=True,
-            )
-            if _stress_basis_html:
-                st.markdown(_stress_basis_html, unsafe_allow_html=True)
             if _stress_methodology:
                 _render_citation_section(
                     {

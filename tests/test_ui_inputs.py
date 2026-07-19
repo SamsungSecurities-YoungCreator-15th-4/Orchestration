@@ -209,7 +209,7 @@ def test_report_renders_four_role_based_rag_sections():
         assert any(f"{category}_202605.pdf" in html for html in citation_table_html)
 
 
-def test_report_deduplicates_freshness_warnings_and_renders_stress_basis():
+def test_report_deduplicates_warnings_and_renders_stress_evidence_without_basis():
     app = AppTest.from_file("ui/app.py")
     house_citations = [
         {
@@ -317,14 +317,9 @@ def test_report_deduplicates_freshness_warnings_and_renders_stress_basis():
         for element in app.markdown
         if 'class="basis-table"' in element.value
     ]
-    assert len(basis_tables) == 2
+    assert len(basis_tables) == 1
     assert "2021-09-07 ~ 2026-07-03 (1250거래일)" in basis_tables[0]
     assert "1,542.13원" in basis_tables[0]
-    assert "관측 데이터 기간" not in basis_tables[1]
-    assert "적용 환율" not in basis_tables[1]
-    assert basis_tables[1].count("<tr>") == 1
-    assert "방법론" in basis_tables[1]
-    assert "methodology_stress_2026.pdf" in basis_tables[1]
     citation_tables = [
         element.value
         for element in app.markdown
@@ -337,6 +332,7 @@ def test_report_deduplicates_freshness_warnings_and_renders_stress_basis():
         table for table in citation_tables if "methodology_stress_2026.pdf" in table
     )
     assert "methodology_stress_2026.pdf" not in var_table
+    assert "methodology_stress_2026.pdf" in stress_table
     assert any(
         "스트레스 테스트 근거" in value
         for value in (element.value for element in app.markdown)
@@ -345,27 +341,6 @@ def test_report_deduplicates_freshness_warnings_and_renders_stress_basis():
         caption.value
         == "사내 공식 스트레스 연산 문서를 바탕으로 정량 계산되었습니다."
         for caption in app.caption
-    )
-    markdown_values = [element.value for element in app.markdown]
-    assert markdown_values.index(basis_tables[1]) < markdown_values.index(stress_table)
-
-    report_without_stress_methodology = dict(app.session_state["report"])
-    report_without_stress_methodology["citations"] = [
-        *house_citations,
-        var_methodology_citation,
-    ]
-    app.session_state["report"] = report_without_stress_methodology
-    app.run(timeout=20)
-
-    assert not app.exception
-    basis_tables_without_stress_methodology = [
-        element.value
-        for element in app.markdown
-        if 'class="basis-table"' in element.value
-    ]
-    assert len(basis_tables_without_stress_methodology) == 2
-    assert "<td>방법론</td><td>정보 없음</td>" in (
-        basis_tables_without_stress_methodology[1]
     )
     styles = "\n".join(
         element.value for element in app.markdown if "<style>" in element.value
