@@ -315,8 +315,16 @@ def load_real_returns(
             cached_meta = json.loads(meta_path.read_text(encoding="utf-8"))
             # request의 5개 키만 부분일치 검사한다(dict 완전일치가 아님) — meta.json에
             # fx_rate_asof처럼 request에 없는 부가 키가 섞여 있어도 캐시가 무효화되지
-            # 않게 하기 위함이다(구버전 meta.json과도 그대로 호환).
+            # 않게 하기 위함이다.
             if all(cached_meta.get(k) == v for k, v in request.items()):
+                cached_fx_rate = cached_meta.get("fx_rate_asof")
+                if (
+                    isinstance(cached_fx_rate, bool)
+                    or not isinstance(cached_fx_rate, (int, float))
+                    or not np.isfinite(cached_fx_rate)
+                    or cached_fx_rate <= 0
+                ):
+                    raise ValueError("실데이터 캐시에 기준일 환율이 없어 재수집합니다.")
                 # 컬럼 선택([ASSET_CLASSES]) 이전의 원본으로 검증해야 예상 밖의
                 # 추가 컬럼(오염된 캐시)도 잡아낼 수 있다.
                 raw_cached = pd.read_parquet(cache_path)
@@ -324,7 +332,7 @@ def load_real_returns(
                 result = raw_cached[ASSET_CLASSES]
                 # parquet 라운드트립은 DataFrame.attrs를 보존하지 않으므로,
                 # 캐시 히트 경로에서도 sidecar에 저장해둔 값으로 다시 채운다.
-                result.attrs["fx_rate_asof"] = cached_meta.get("fx_rate_asof")
+                result.attrs["fx_rate_asof"] = float(cached_fx_rate)
                 return result
         except Exception as e:
             logger.warning("실데이터 캐시 읽기 실패, 재수집합니다: %s (%s)", cache_path, e)

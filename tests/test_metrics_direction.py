@@ -546,7 +546,9 @@ def test_real_cache_invalidated_on_param_mismatch(tmp_path, monkeypatch):
     def fake_fetch(n, as_of_date, rf_annual):
         calls.append(n)
         idx = pd.bdate_range(end=pd.Timestamp(as_of_date), periods=n)
-        return pd.DataFrame({c: 0.001 for c in ASSET_CLASSES}, index=idx)[ASSET_CLASSES]
+        result = pd.DataFrame({c: 0.001 for c in ASSET_CLASSES}, index=idx)[ASSET_CLASSES]
+        result.attrs["fx_rate_asof"] = FAKE_FX_RATE_ASOF
+        return result
 
     monkeypatch.setattr(returns_mod, "_fetch_real_returns", fake_fetch)
     cache_path = tmp_path / "real.parquet"
@@ -669,6 +671,41 @@ def test_load_real_returns_fx_rate_asof_survives_cache_hit(tmp_path, monkeypatch
     monkeypatch.setattr(returns_mod, "_fetch_real_returns", fail_if_called)
     df2 = load_real_returns(n=10, as_of_date="2026-07-03", cache_path=cache_path, meta_path=meta_path)
     assert df2.attrs.get("fx_rate_asof") == FAKE_FX_RATE_ASOF
+
+
+def test_load_real_returns_refreshes_legacy_cache_without_fx_rate(tmp_path, monkeypatch):
+    """구버전 sidecar에 환율이 없으면 재수집해 적용 환율 누락을 복구한다."""
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", _fake_fetch_real_returns)
+    cache_path = tmp_path / "real.parquet"
+    meta_path = tmp_path / "real.meta.json"
+    load_real_returns(
+        n=10,
+        as_of_date="2026-07-03",
+        cache_path=cache_path,
+        meta_path=meta_path,
+    )
+    legacy_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    legacy_meta.pop("fx_rate_asof")
+    meta_path.write_text(json.dumps(legacy_meta), encoding="utf-8")
+
+    fetch_calls = 0
+
+    def refetch(*args, **kwargs):
+        nonlocal fetch_calls
+        fetch_calls += 1
+        return _fake_fetch_real_returns(*args, **kwargs)
+
+    monkeypatch.setattr(returns_mod, "_fetch_real_returns", refetch)
+    refreshed = load_real_returns(
+        n=10,
+        as_of_date="2026-07-03",
+        cache_path=cache_path,
+        meta_path=meta_path,
+    )
+
+    assert fetch_calls == 1
+    assert refreshed.attrs["fx_rate_asof"] == FAKE_FX_RATE_ASOF
+    assert json.loads(meta_path.read_text(encoding="utf-8"))["fx_rate_asof"] == FAKE_FX_RATE_ASOF
 
 
 def test_compute_metrics_echoes_fx_rate_asof():
