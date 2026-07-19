@@ -348,6 +348,25 @@ def test_report_deduplicates_freshness_warnings_and_renders_stress_basis():
     )
     markdown_values = [element.value for element in app.markdown]
     assert markdown_values.index(basis_tables[1]) < markdown_values.index(stress_table)
+
+    report_without_stress_methodology = dict(app.session_state["report"])
+    report_without_stress_methodology["citations"] = [
+        *house_citations,
+        var_methodology_citation,
+    ]
+    app.session_state["report"] = report_without_stress_methodology
+    app.run(timeout=20)
+
+    assert not app.exception
+    basis_tables_without_stress_methodology = [
+        element.value
+        for element in app.markdown
+        if 'class="basis-table"' in element.value
+    ]
+    assert len(basis_tables_without_stress_methodology) == 2
+    assert "<td>방법론</td><td>정보 없음</td>" in (
+        basis_tables_without_stress_methodology[1]
+    )
     styles = "\n".join(
         element.value for element in app.markdown if "<style>" in element.value
     )

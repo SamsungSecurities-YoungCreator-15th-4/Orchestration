@@ -1592,7 +1592,8 @@ else:
             _stress_basis_html = basis_table_html(
                 [
                     ("방법론", ", ".join(_stress_methodology_sources) or None),
-                ]
+                ],
+                include_unavailable=True,
             )
             if _stress_basis_html:
                 st.markdown(_stress_basis_html, unsafe_allow_html=True)
