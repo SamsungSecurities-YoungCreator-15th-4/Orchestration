@@ -332,7 +332,7 @@ def test_report_deduplicates_warnings_and_renders_stress_evidence_without_basis(
         table for table in citation_tables if "methodology_stress_2026.pdf" in table
     )
     assert "methodology_stress_2026.pdf" not in var_table
-    assert "methodology_stress_2026.pdf" in stress_table
+    assert "methodology_var_cvar_2026.pdf" not in stress_table
     assert any(
         "스트레스 테스트 근거" in value
         for value in (element.value for element in app.markdown)
