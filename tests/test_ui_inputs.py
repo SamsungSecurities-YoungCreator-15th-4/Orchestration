@@ -196,7 +196,7 @@ def test_report_renders_four_role_based_rag_sections():
     assert "자산시장 참고자료 (참고용 · 계산 근거 아님)" in markdown
     assert "세무 참고자료 (참고용 · 계산 근거 아님)" in markdown
     assert all(
-        "리스크 연산을 위해 참고한" not in caption.value
+        "리스크 연산을 위해 참고한" not in (caption.value or "")
         for caption in app.caption
     )
     evidence_metrics = {metric.label: metric.value for metric in app.metric}
