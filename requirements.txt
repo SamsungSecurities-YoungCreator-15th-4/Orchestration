@@ -1,3 +1,5 @@
+# LangStack pins are Dependabot-managed releases from public PyPI.
+# CI installs this file on a clean Python 3.10 runner as the availability gate.
 langgraph==1.2.9
 langchain==1.3.14
 langchain-openai==1.3.5
