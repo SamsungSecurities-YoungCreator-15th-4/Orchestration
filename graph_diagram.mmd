@@ -1,31 +1,74 @@
+%% S.ymphony 최종 LangGraph 구성
+%% 실제 그래프 노드: 8개 / 조건부 루프: 2개 / HITL 인터럽트: 1개
 flowchart TD
-    START([START]) --> load_inputs
+    START([START]) --> N1
 
-    subgraph DET["결정론 계층 (Deterministic)"]
-        load_inputs["★결정론 load_inputs<br/>config·입력 정규화"]
-        conflict_check["★결정론 conflict_check<br/>룰 기반 충돌 검사"]
-        var_engine["★결정론 var_engine<br/>VaR/CVaR·스트레스 계산"]
-        assemble_report["★결정론 assemble_report<br/>리포트 조립"]
+    subgraph INPUT["1. 고객 입력 · IPS 구조화"]
+        direction TD
+        N1["① load_inputs<br/>고객 상담 · 6개 자산 비중 · 실행 설정 정규화"]
+        N2["② extract_ips<br/>GPT-4o Structured Output로 IPS 추출<br/>고정값 적용 · 추출 해시 기록"]
+        N3["③ conflict_check<br/>IPS와 포트폴리오 적합성 사전 검사<br/>정책 버전 · 기준값 · 근거 · 정책 해시 기록"]
+        R1{"충돌 존재<br/>and 재추출 1회 미만?"}
+
+        N1 --> N2 --> N3 --> R1
+        R1 -- "Yes · 구조화 재확인" --> N2
     end
 
-    subgraph LLM["LLM 계층"]
-        extract_ips["★LLM extract_ips<br/>Structured Output IPS 추출"]
-        rag_cite["★LLM rag_cite<br/>RAG 설명·검증 인용 생성"]
-        judge_eval["★LLM judge_eval<br/>6축 LLM-as-Judge 평가"]
+    R1 -- "No · 충돌 없음 또는 재시도 소진" --> H1
+
+    subgraph APPROVAL["2. PB 검토 · HITL 승인"]
+        direction TD
+        H1["⏸ approval_gate 직전 인터럽트<br/>PB가 IPS · 포트폴리오 · 충돌 내역 검토"]
+        A1{"충돌 등급에 따른<br/>PB 의사결정"}
+        N4["④ approval_gate<br/>reviewed 상태와 승인 조건 검증<br/>승인 레코드를 locked로 잠금"]
+        STOP["⛔ 입력 보완 후 재실행<br/>block은 예외 승인 불가"]
+
+        H1 --> A1
+        A1 -- "충돌 없음: approved" --> N4
+        A1 -- "review: exception_approved<br/>사유 10자 이상" --> N4
+        A1 -- "block" --> STOP
     end
 
-    subgraph HITL["HITL 계층"]
-        approval_gate["★HITL approval_gate<br/>PB 승인 게이트 · interrupt_before"]
+    N4 --> N5
+
+    subgraph ANALYSIS["3. 정량 연산 · 근거 검색 · 품질 평가"]
+        direction TD
+        N5["⑤ var_engine<br/>Historical VaR · CVaR · 스트레스 테스트<br/>결과와 computation_hash 생성"]
+        N6["⑥ rag_cite<br/>4개 카테고리 RAG 검색 · 인용 생성<br/>methodology · macro · house_view · tax"]
+        N7["⑦ judge_eval<br/>출처 · 수치 · 환각 · 정밀성 · 면책 · 금지표현 평가<br/>검증 결과와 사유 로그 기록"]
+        R2{"Judge 통과<br/>또는 평가 2회 도달?"}
+
+        N5 --> N6 --> N7 --> R2
+        R2 -- "No · 재작성" --> N6
     end
 
-    load_inputs --> extract_ips
-    extract_ips --> conflict_check
-    conflict_check -- "분기① 충돌 & retries < 1" --> extract_ips
-    conflict_check -- "충돌 없음 or 재시도 소진" --> approval_gate
-    approval_gate -. "② interrupt_before<br/>(사람 승인 대기)" .-> approval_gate
-    approval_gate --> var_engine
-    var_engine --> rag_cite
-    rag_cite --> judge_eval
-    judge_eval -- "분기③ 불통과 & judge_retries < 2" --> rag_cite
-    judge_eval -- "통과 or 2회 도달<br/>(실패 시 수동검토)" --> assemble_report
-    assemble_report --> END([END])
+    R2 -- "Yes · 실패 지속 시 수동검토 표시" --> N8
+
+    subgraph OUTPUT["4. 리포트 조립 · 감사"]
+        direction TD
+        N8["⑧ assemble_report<br/>수치 · 검증 인용 · Judge · 승인 · 재현성 정보 통합<br/>LangSmith 추적 URL과 감사 정보 연결"]
+        END([END])
+
+        N8 --> END
+    end
+
+    NOTE1["block<br/>평가금액 없음 · 투자기간 미확인<br/>유동성 필요액이 총자산 초과 등"]
+    NOTE2["review<br/>현금 부족 · 유동성 수요 30% 초과<br/>단기 위험자산 · 균형형 위험자산 60% 초과<br/>단일 위험자산 40% 초과 등"]
+    N3 -. "대표 규칙" .-> NOTE1
+    N3 -. "대표 규칙" .-> NOTE2
+
+    classDef deterministic fill:#EAF2FF,stroke:#2563EB,color:#0F172A,stroke-width:2px;
+    classDef llm fill:#F3E8FF,stroke:#7C3AED,color:#0F172A,stroke-width:2px;
+    classDef hitl fill:#FFF7E6,stroke:#F59E0B,color:#0F172A,stroke-width:2px;
+    classDef route fill:#F8FAFC,stroke:#64748B,color:#0F172A,stroke-width:1.5px;
+    classDef terminal fill:#ECFDF5,stroke:#059669,color:#0F172A,stroke-width:2px;
+    classDef stop fill:#FEF2F2,stroke:#DC2626,color:#991B1B,stroke-width:2px;
+    classDef note fill:#FFFFFF,stroke:#94A3B8,color:#334155,stroke-dasharray:4 3;
+
+    class N1,N3,N5,N8 deterministic;
+    class N2,N6,N7 llm;
+    class H1,A1,N4 hitl;
+    class R1,R2 route;
+    class START,END terminal;
+    class STOP stop;
+    class NOTE1,NOTE2 note;
