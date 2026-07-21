@@ -1,0 +1,92 @@
+%%{init: {"theme": "base", "flowchart": {"htmlLabels": true, "curve": "linear"}}}%%
+%% S.ymphony Mermaid 아키텍처
+%% 실제 LangGraph 노드 8개 · 실행 단계 4개 · 아키텍처 계층 3개 · 조건부 루프 2개 · HITL 1개
+flowchart TB
+
+    %% 실행 흐름과 분리된 아키텍처 계층 범례
+    subgraph LEGEND["3계층 범례"]
+        direction LR
+        KEY_DET["정량 코드 로직 계층"]
+        KEY_LLM["LLM · RAG 계층"]
+        KEY_HITL["Human-in-the-Loop 계층"]
+    end
+
+    %% 1단계: 고객 정보 및 포트폴리오 입력, IPS 구조화, 충돌 검사
+    subgraph STEP1["1. 고객 정보 및 포트폴리오 입력 · IPS 구조화 · 충돌 검사"]
+        direction LR
+        START((START))
+        N1["① load_inputs<br/>고객 정보 · 포트폴리오 비중 입력<br/>승인 상태=draft"]
+        N2["② extract_ips<br/>LangChain Structured Output<br/>Azure OpenAI GPT-4o<br/>추출 메타데이터·입력 해시 기록"]
+        N3["③ conflict_check<br/>실제 시장 근거 기반 IPS 적합성 충돌 검사<br/>충돌 상태=block or review<br/>충돌 해시 기록"]
+        CONFLICT["[대표 충돌 기준] <br/>block: 필수정보 누락 · 유동성 필요액이 총자산 초과 등<br/>review: 유동성 30% 초과 · 균형형 위험자산 60% 초과 등"]
+
+        START --> N1
+        N1 -->|"config 정규화"| N2
+        N2 --> N3
+        N3 -. "충돌 있음 & conflict_retries < 1" .-> N2
+        N3 -.-> CONFLICT
+    end
+
+    %% 2단계: PB 승인(Human-in-the-Loop)
+    subgraph STEP2["2. PB 승인(Human-in-the-Loop)"]
+        direction LR
+        PAUSE["⏸ approval_gate 직전 중단<br/>PB가 룰 기반 충돌 사항 여부 검토"]
+        N4["④ approval_gate<br/>승인 상태=reviewed<br/>PB 정상 승인 시=approved / PB 예외 승인 시=exception_approved → 승인 상태=locked<br/>PB 이름 및 사번 검증"]
+        STOP["입력 보완 후 재실행<br/>block은 예외 승인 불가"]
+
+        PAUSE --> N4
+        N4 -. "block" .-> STOP
+    end
+
+    %% 3단계: 정량 리스크 엔진, XAI, 검증 및 추적
+    subgraph STEP3["3. 정량 리스크 및 스트레스 연산 · RAG 근거 · Judge LLM"]
+        direction LR
+        N5["⑤ var_engine<br/>yfinance 실데이터·Parquet 캐싱<br/>VaR·CVaR·스트레스 연산<br/>계산 해시 기록"]
+        N6["⑥ rag_cite<br/>방법론 문서 2개+인용 문서 19개 코퍼스 라우팅<br/>검증 통과 citation만 State에 저장"]
+        N7["⑦ judge_eval<br/>6축 Judge LLM 루브릭<br/>판정 사유·재시도 로그 기록"]
+
+        N5 --> N6
+        N6 --> N7
+        N7 -. "미통과 또는 judge_retries < 4<br/>RAG 재시도" .-> N6
+    end
+
+    %% 4단계: 최종 리스크 리포트 생성
+    subgraph STEP4["4. 리스크 리포트 생성"]
+        direction LR
+        N8["⑧ assemble_report<br/>전체 분석 결과를 리포트로 생성"]
+        END((END))
+
+        N8 --> END
+    end
+
+    %% 단계 간 기본 실행 경로
+    N3 -->|"충돌 없음 또는 재추출 1회 소진"| PAUSE
+    N4 -->|"승인 상태=locked"| N5
+    N7 -->|"통과 또는 judge_retries ≥ 4<br/>실패 지속 시 수동검토 표시"| N8
+
+    %% 그래프 외 공통 감사 요소: 단일 연결로 교차선을 최소화
+    AUDIT["전 노드 RiskState 체크포인트<br/>[LangSmith]<br/>입력·충돌·계산 해시<br/>trace URL"]
+    N8 -. "전 과정 기록 및 추적" .-> AUDIT
+
+    %% 3계층은 실행 순서를 유지한 채 노드 색상으로 구분
+    classDef deterministic fill:#EDF4FC,stroke:#3B5CCC,color:#111827,stroke-width:2px;
+    classDef llmNode fill:#F6F0FF,stroke:#7440B8,color:#111827,stroke-width:2px;
+    classDef hitlNode fill:#ECF8EF,stroke:#08A26A,color:#111827,stroke-width:2px;
+    classDef terminal fill:#172033,stroke:#172033,color:#FFFFFF,stroke-width:2px;
+    classDef stop fill:#FFF1F2,stroke:#DC2626,color:#991B1B,stroke-width:1.5px;
+    classDef audit fill:#FFF7E6,stroke:#D97706,color:#7C2D12,stroke-width:1.5px,stroke-dasharray:5 3;
+    classDef note fill:#F8FAFC,stroke:#64748B,color:#334155,stroke-width:1.5px,stroke-dasharray:5 3;
+
+    class KEY_DET,N1,N3,N5,N8 deterministic;
+    class KEY_LLM,N2,N6,N7 llmNode;
+    class KEY_HITL,PAUSE,N4 hitlNode;
+    class START,END terminal;
+    class STOP stop;
+    class AUDIT audit;
+    class CONFLICT note;
+
+    style LEGEND fill:#FFFFFF,stroke:#CBD5E1,stroke-width:1px
+    style STEP1 fill:#FFFFFF,stroke:#CBD5E1,stroke-width:1px
+    style STEP2 fill:#FFFFFF,stroke:#CBD5E1,stroke-width:1px
+    style STEP3 fill:#FFFFFF,stroke:#CBD5E1,stroke-width:1px
+    style STEP4 fill:#FFFFFF,stroke:#CBD5E1,stroke-width:1px
