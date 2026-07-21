@@ -22,6 +22,7 @@ flowchart TB
 
         START --> N1
         N1 -->|"config 정규화"| N2
+        N2 --> N3
         N3 -. "충돌 있음 & conflict_retries < 1" .-> N2
         N3 -.-> CONFLICT
     end
