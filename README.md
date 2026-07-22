@@ -113,8 +113,8 @@ S.ymphony는 이 문제를 두 축으로 해결한다.
 
 ## 아키텍처
 
-노드 8개 · 조건부 분기 2개(① 상충 재추출 ② judge 평가 루프) ·
-HITL 인터럽트 1개(PB 승인 게이트). LLM/결정론/HITL 3계층 표식이 포함된 전체 다이어그램은
+노드 8개 · 조건부 3개(① 상충 재추출 분기 ② PB 승인 게이트 ③ judge 평가 루프) ·
+HITL 인터럽트 1개. LLM/결정론/HITL 3계층 표식이 포함된 전체 다이어그램은
 [`mermaid.mmd`](mermaid.mmd) 참조.
 
 ```
@@ -162,7 +162,7 @@ START
 Orchestration/
 ├── app/
 │   ├── state.py       # RiskState/IPSProfile — 팀 데이터 계약(SSOT), 임의 수정 금지
-│   ├── graph.py       # StateGraph 조립 (8노드 + 조건부 분기 2개 + HITL 인터럽트 1개)
+│   ├── graph.py       # StateGraph 조립 (8노드 + 조건부 분기 2개 + HITL)
 │   ├── nodes/         # 그래프 노드 8개 (순수 함수, 바꾼 키만 반환)
 │   ├── engine/        # 결정론 계층 — langchain/llm import 금지
 │   ├── llm/           # AzureChatOpenAI 팩토리, IPS 추출 체인, 감사
@@ -248,7 +248,7 @@ pytest에는 위험↑→VaR↑ 방향성 검증(`tests/test_metrics_direction.p
 
 | 요구사항 | 구현 |
 | --- | --- |
-| R0-1 StateGraph 8노드+조건부 분기 2개+HITL | `app/graph.py` — 상충 분기·judge 루프(최대 3회) + 승인 게이트 인터럽트(draft→reviewed→locked) |
+| R0-1 StateGraph 8노드+조건부 3개 | `app/graph.py` — 상충 분기·승인 게이트(draft→reviewed→locked)·judge 루프(최대 3회) |
 | R0-2 Mermaid 3계층 표식 | [`mermaid.mmd`](mermaid.mmd) — LLM/결정론/HITL 색상 분리 |
 | R0-3 LangSmith 풀스택 | trace·judge 역추적·평가셋 20건+정확도·감사 로그(trace_id+프롬프트 해시+모델 버전)·형상관리 |
 | R0-4 LangChain 표준 부품 | RAG retriever(langchain-chroma)·Structured Output, 원시 API 직접 호출 금지 |
