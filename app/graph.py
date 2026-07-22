@@ -1,4 +1,4 @@
-"""StateGraph 조립 — 8노드 + 조건부 엣지 2개 + HITL 인터럽트 1개."""
+"""StateGraph 조립 — 8노드 + 조건부 엣지 3개 + HITL 인터럽트."""
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
