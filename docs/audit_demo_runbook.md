@@ -19,13 +19,14 @@
 | 성공② | judge 실패 → 재작성 → 통과 (루프 시연) | 위 명령 + `--force-judge-fail N` (N은 `judge_max_retries`**보다 작은** 값) |
 | 차단 | 재시도 소진 → `manual_review_gate` 정지 | 위 명령 + `--force-judge-fail N` (N은 `judge_max_retries` **이상**) |
 
-- 출력 루트는 `--evidence-bundle`에 인자를 주지 않으면 `evidence/`다 — `scripts/run_graph.py:118` (DEFAULT_EVIDENCE_ROOT).
+- 출력 루트는 `--evidence-bundle`에 인자를 주지 않으면 `evidence/`다 — `scripts/run_graph.py:127` (DEFAULT_EVIDENCE_ROOT).
 - 재시도 상한 숫자는 이 문서에 적지 않는다. 유일한 원천은 `config/config.yaml`의 `judge_max_retries`이고
   코드는 `app/nodes/judge_eval.py:28` (resolve_max_judge_retries)로만 읽는다.
-- 강제 실패 횟수는 `demo_options.force_judge_fail`로 들어간다 — `scripts/run_graph.py:136` (force_judge_fail).
+- 강제 실패 횟수는 `demo_options.force_judge_fail`로 들어간다 — `scripts/run_graph.py:155` (force_judge_fail).
 
-**감사자가 보는 것**: 번들 디렉터리 안의 파일 9종. 목록의 원천은 `app/evidence/schema.py:48` (BUNDLE_FILENAMES)이다.
-성공 번들이든 차단 번들이든 **9종이 전부 생성된다** — 차단 사례도 제출물이다.
+**감사자가 보는 것**: 번들 디렉터리 안의 파일 전체. 목록의 원천은 `app/evidence/schema.py:50` (BUNDLE_FILENAMES)이며,
+이 문서는 종수를 숫자로 적지 않는다 — 파일이 늘면 문서가 상수와 갈라진다.
+성공 번들이든 차단 번들이든 **`BUNDLE_FILENAMES`가 전부 생성된다** — 차단 사례도 제출물이다.
 
 ---
 
@@ -38,16 +39,16 @@
 | ① | 번들 정체 확인 | 30초 | `manifest.json` | `run_id` · `schema_version` · `generated_by.script` · `generated_by.git_sha` |
 | ② | 판정 7줄 | 60초 | `summary.md` 머리말 | 아래 7줄을 위에서 아래로 그대로 읽는다 |
 | ③ | 실패 축·차단 사유 | 45초 | `summary.md` §실패 축 · §차단 사유 | 성공 번들이면 "없음 (필수 검사 전부 통과)" 한 줄로 끝낸다 |
-| ④ | 재현 지문 3종 | 60초 | `summary.md` §주요 해시 + `replay_diff.json` | 아래 표 참조 — **두 파일을 모두 연다** |
+| ④ | 재현 지문 3종 | 45초 | `summary.md` §주요 해시 | 3종이 한 절에 모여 있다 — 파일 하나만 연다 |
 | ⑤ | 지목 번들 심화 1건 | 60초 | 성공 → `judge_rationale.json` / 차단 → `hard_stop_record.json` | 아래 참조 |
 | ⑥ | `available:false` 선제 설명 | 30초 | 해당 파일 | 아래 §2.3 |
-| — | 예비 | 15초 | — | 질문 1건 흡수용 |
+| — | 예비 | 30초 | — | 질문 흡수용 |
 
 **합계 300초.**
 
 ### 2.1 ② 구간 — `summary.md` 머리말 7줄
 
-`scripts/make_evidence_bundle.py:392` (build_summary_md)가 찍는 순서 그대로다. 순서를 바꾸지 않는다.
+`scripts/make_evidence_bundle.py:491` (build_summary_md)가 찍는 순서 그대로다. 순서를 바꾸지 않는다.
 
 ```
 - 스키마 버전:
@@ -63,15 +64,16 @@
 
 ### 2.2 ④ 구간 — 재현 지문 3종을 어디서 보여주는가
 
-**`summary.md` 하나로는 3종이 다 안 나온다.** `approval_hash`는 summary에 없다.
+**`summary.md` §주요 해시 한 곳에 3종이 다 있다.** 이 구간에서는 파일을 하나만 연다.
 
 | 지문 | 위치 | 근거 |
 | --- | --- | --- |
-| `config_hash` | `summary.md` §주요 해시 | `scripts/make_evidence_bundle.py:392` (build_summary_md) |
-| `computation_hash` | `summary.md` §주요 해시 | 〃 |
-| `approval_hash` | **`replay_diff.json`의 `hashes.approval_hash`** | `scripts/make_evidence_bundle.py:316` (build_replay_diff) |
+| `config_hash` | `summary.md` §주요 해시 | `scripts/make_evidence_bundle.py:491` (build_summary_md) |
+| `computation_hash` | 〃 | 〃 |
+| `approval_hash` | 〃 | 〃 |
 
-- `summary.md`의 `report_hash`는 재현 지문 3종이 **아니다.** 번들이 `report` 전문에서 계산한 값이며 화면에도 그렇게 적혀 있다.
+- `summary.md`의 `report_hash`는 재현 지문이 **아니다.** 번들이 `report` 전문에서 계산한 값이며, 화면에 "재현 지문 아님"이라고 적혀 있다.
+- 같은 값이 `replay_diff.json`의 `hashes`에도 있다 — `scripts/make_evidence_bundle.py:324` (build_replay_diff). 감사자가 "summary가 옮겨 적은 것 아니냐"고 물으면 그쪽을 열어 대조한다.
 - 왜 3종뿐인지 묻거든 `docs/reproducibility_scope.md` §3 「제외 대상에 대한 원칙」을 연다.
 - `replay_diff.json`을 열면 `status: single_run_only`가 같이 보인다. **먼저 말한다** — 이 번들은 1회 실행분 해시만 싣고 있고 2회 대조는 3분 재실행에서 지금 한다고 예고한다.
 
@@ -85,8 +87,11 @@
 | `trace.node_execution_order` | state에 없는 값이라 채울 수 없음. CLI 출력에만 존재 | 〃 §8.2 |
 | `hard_stop_record.manual_review_gate` (성공 번들) | 공백이 아니라 **정상**. 같은 파일 `blocked=false`가 같은 사실을 파생값으로 확인 | 〃 §8.5 |
 | `LangSmith trace URL: 없음 (...)` | 추적이 꺼진 실행. `trace_id`는 그대로 있고 원본 키 경로가 사유에 적혀 있음 | 〃 §5 |
+| `calibration_summary.json`의 `source`·`v1`·`v2`·`comparison` | R2 측정 전이라 비어 있음. **파일은 항상 생성되고** 사유와 복원 방법(`--calibration`)이 실려 있음 | 〃 §8.4 |
 
 핵심 문장은 하나다 — **"없는 것"과 "안 채운 것"을 구분해 사유와 원본 키 경로를 함께 적었다** (`docs/evidence_bundle_schema.md` §5).
+
+**calibration이 채워진 번들이라면 `source.mode`를 먼저 짚는다.** 수치가 있어도 등급이 `dev_mock`·`offline_rehearsal`이면 R2 공식 제출 요건을 만족하지 않는다. 감사자가 일치율을 먼저 읽기 전에 등급을 말한다. 등급을 알 수 없는 입력에서는 수치도 함께 비워지므로(fail-closed), "수치는 있는데 출처를 모르는" 상태는 나오지 않는다 — `docs/evidence_bundle_schema.md` §4.8.
 
 ### 2.4 ⑤ 구간 — 지목 번들별 심화 파일
 
@@ -114,7 +119,7 @@ python scripts/run_graph.py --auto-approve --offline \
 | --- | --- | --- | --- |
 | ① | 먼저 밝히기 | 20초 | §4의 4줄을 **명령을 치기 전에** 말한다 |
 | ② | 실행 | 40초 | 위 명령 1줄. 진행 중 노드 실행 순서가 화면에 흐른다 |
-| ③ | 지문 3종 대조 | 40초 | 새 번들의 `summary.md`·`replay_diff.json` vs 제출본 |
+| ③ | 지문 3종 대조 | 40초 | 새 번들 `summary.md` §주요 해시 vs 제출본 |
 | ④ | §2 항목 대조 | 40초 | 아래 명령 출력 |
 | ⑤ | 제외 대상 공개 | 30초 | 같은 출력의 `citations` 줄이 `False`인 것을 그대로 보인다 |
 | — | 예비 | 10초 | — |
@@ -190,7 +195,7 @@ RAG 검색·rag_cite·judge_eval은 실제 Azure를 호출한다 (`reproducibili
 | 11 | 재시도 상한 | 재시도는 몇 번까지이고 그 숫자는 어디 있나 | `docs/hard_stop_contract.md` §2 · `app/nodes/judge_eval.py:28` (resolve_max_judge_retries) |
 | 12 | 차단 지문 | 차단 지문이 실행마다 같나 | `docs/reproducibility_scope.md` §4.2 · `docs/evidence_bundle_schema.md` §4.5 |
 | 13 | 누락 표기 | "없음"으로 나온 칸은 안 채운 것 아닌가 | `docs/evidence_bundle_schema.md` §5 · §8 |
-| 14 | 탈락 인용 | 떨어진 인용은 어디에 남나 | `docs/hard_stop_contract.md` §5 「탈락 인용 기록」 · `scripts/make_evidence_bundle.py:241` (_rejected_citations) |
+| 14 | 탈락 인용 | 떨어진 인용은 어디에 남나 | `docs/hard_stop_contract.md` §5 「탈락 인용 기록」 · `scripts/make_evidence_bundle.py:249` (_rejected_citations) |
 
 ---
 
@@ -216,7 +221,7 @@ RAG 검색·rag_cite·judge_eval은 실제 Azure를 호출한다 (`reproducibili
 sha256sum manifest.json | cut -d' ' -f1
 cat bundle_hash.txt
 
-# ② manifest.files 전건 재계산 — 7종 파일 해시가 manifest 기록과 같아야 한다
+# ② manifest.files 전건 재계산 — HASHED_FILENAMES 각각의 해시가 manifest 기록과 같아야 한다
 python -c "
 import json, hashlib, pathlib
 m = json.load(open('manifest.json'))
@@ -231,7 +236,7 @@ manifest가 바뀌고, bundle_hash가 바뀐다 (`docs/evidence_bundle_schema.md
 
 ### 6.3 차단 번들이 지정될 때
 
-- **5분 구간은 그대로 간다.** ⑤ 구간만 `hard_stop_record.json`으로 바꾼다(§2.4). 차단 번들도 파일 9종이 전부 있다.
+- **5분 구간은 그대로 간다.** ⑤ 구간만 `hard_stop_record.json`으로 바꾼다(§2.4). 차단 번들도 `BUNDLE_FILENAMES`가 전부 있다.
 - **3분 재실행은 성공 경로 명령으로 한다.** 차단 경로 재실행이 3분에 안 들어가는 근거(§3.3)를 **먼저 밝히고** 시작한다.
 - 차단의 재현은 라이브 실행 대신 `decision_hash`로 갈음한다 — `reproducibility_scope.md` §4.2가 추적 off/on 4회 실행 전부 동일함을 기록하고 있고, `trace_id`가 갈린 실행 쌍에서도 같았다.
 - UI까지 묻거든 `ui/report_export.py:18` (pdf_export_state)를 연다. `report_is_exportable`이 `false`면 PDF 저장 버튼이 비활성이고, 안내문이 "Judge 미통과 또는 수동검토 대기"로 분기한다.
@@ -251,8 +256,5 @@ manifest가 바뀌고, bundle_hash가 바뀐다 (`docs/evidence_bundle_schema.md
 - **§6.2의 검증 명령 2종은 합성 state로 만든 번들에서만 확인했다.** 그래프를 돌리지 않고
   `make_bundle`(직렬화기)만 호출해 만든 번들이라 파일 구조·해시 체계는 같지만, 실행 산출물이 들어간
   실물 번들에서 다시 한 번 돌려 봐야 한다.
-- **`evidence/`는 `.gitignore`에 없다.** 번들을 만든 뒤 실수로 커밋되지 않도록 제출 전에 확인한다.
-- **calibration 요약은 번들 파일로 나가지 않는다.** 계약은 `app/evidence/schema.py`에 있으나
-  `BUNDLE_FILENAMES`에 없다 (`docs/evidence_bundle_schema.md` §8.4). 질문 6번이 나오면 이 사실을 먼저 밝힌다.
 - **UI 시연 동선은 이 문서 범위 밖이다.** §6.3의 `pdf_export_state` 1건만 확인했고,
   Streamlit 화면의 다른 위치는 확인하지 않았다.
